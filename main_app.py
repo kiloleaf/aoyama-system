@@ -34,6 +34,47 @@ db = firestore.client()
 
 st.set_page_config(page_title="外国人材業務管理システム", layout="wide")
 
+# （前略）...Firebaseの初期化コードなど...
+
+st.set_page_config(page_title="外国人材業務管理システム", layout="wide")
+
+
+# ==========================================
+# 🔐 ログイン機能（ここから追加）
+# ==========================================
+def check_password():
+    """パスワードが正しいかチェックする関数"""
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if not st.session_state["password_correct"]:
+        st.title("🔐 青山行政書士事務所 システム")
+        st.info("このシステムは関係者専用です。パスワードを入力してください。")
+
+        # パスワード入力フォーム
+        pwd = st.text_input("パスワード", type="password")
+        if st.button("ログイン"):
+            if pwd == st.secrets["auth"]["password"]:
+                st.session_state["password_correct"] = True
+                st.rerun()  # 画面をリロードして中へ進む
+            else:
+                st.error("❌ パスワードが間違っています。")
+
+        # パスワードが合っていない場合は、ここで画面の描画を強制ストップする！
+        st.stop()
+
+
+# パスワードチェックを実行
+check_password()
+# ==========================================
+# 🔐 ログイン機能（ここまで）
+# ==========================================
+
+# ==========================================
+# 🚨 写真保存先フォルダ（クラウド対応）
+# ==========================================
+# （後略）...今まで通りのBASE_DIR設定や、画面を作るコードが続く...
+
 # ==========================================
 # 🚨 写真保存先フォルダ（クラウド対応）
 # ==========================================
