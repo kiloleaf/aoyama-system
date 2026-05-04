@@ -34,9 +34,6 @@ db = firestore.client()
 
 st.set_page_config(page_title="外国人材業務管理システム", layout="wide")
 
-# （前略）...Firebaseの初期化コードなど...
-
-st.set_page_config(page_title="外国人材業務管理システム", layout="wide")
 
 
 # ==========================================
@@ -71,22 +68,38 @@ check_password()
 # ==========================================
 
 # ==========================================
-# 🚨 写真保存先フォルダ（クラウド対応）
+# 🚨 写真保存先フォルダ（クラウド対応：Firebase Storageへ移行）
 # ==========================================
-# （後略）...今まで通りのBASE_DIR設定や、画面を作るコードが続く...
+# ローカルへの保存は廃止し、Firebase Storage を使います
+from firebase_admin import storage
+
+# ★ここに、先ほどメモした「バケット名」を入力してください！
+os.environ["FIREBASE_STORAGE_BUCKET"] = "aoyama-system-9bc56.firebasestorage.app"
+
+
+def upload_image_to_storage(image_file, worker_id, file_name="photo.jpg"):
+    """画像をFirebase Storageにアップロードし、URLを返す関数"""
+    try:
+        bucket = storage.bucket(os.environ["FIREBASE_STORAGE_BUCKET"])
+        blob = bucket.blob(f"workers/{worker_id}/{file_name}")
+
+        # StreamlitのUploadedFileオブジェクトをバイナリとしてアップロード
+        blob.upload_from_file(image_file, content_type=image_file.type)
+
+        # 誰でも画像を見られるように公開URLを生成（有効期限を長めに設定）
+        url = blob.generate_signed_url(expiration=timedelta(days=3650), method='GET')
+        return url
+    except Exception as e:
+        st.error(f"画像のアップロードに失敗しました: {e}")
+        return None
+
 
 # ==========================================
-# 🚨 写真保存先フォルダ（クラウド対応）
+# 🔥 Firebase用のデータ取得・変換関数
 # ==========================================
-# Cドライブ直指定をやめ、「このプログラムがある場所」を基準にする
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# (fetch_all, fetch_where, format_date は今まで通りそのまま)
 
-ASSETS_DIR = os.path.join(BASE_DIR, 'assets')
-WORKERS_DIR = os.path.join(ASSETS_DIR, 'workers')
-COMPANIES_DIR = os.path.join(ASSETS_DIR, 'companies')
-
-os.makedirs(WORKERS_DIR, exist_ok=True)
-os.makedirs(COMPANIES_DIR, exist_ok=True)
+# ★ get_or_create_worker_dir 関数は不要になったので削除またはコメントアウトしてもOKです
 # ==========================================
 
 st.markdown("""
@@ -132,12 +145,6 @@ def format_date(d):
     return "ー" if pd.isna(d) or str(d).strip() in ["None", "", "nan", "1900-01-01"] else d
 
 
-def get_or_create_worker_dir(worker_id, worker_name_en):
-    safe_w_name = "".join([c if c.isalnum() or c in " _-" else "_" for c in str(worker_name_en)])
-    worker_dir_name = f"{worker_id}_{safe_w_name}"
-    target_dir = os.path.join(WORKERS_DIR, worker_dir_name)
-    os.makedirs(target_dir, exist_ok=True)
-    return target_dir
 
 
 st.sidebar.title("📂 管理メニュー")
@@ -460,20 +467,11 @@ def show_worker_list():
                             with tab_info:
                                 col_img, col_info1, col_info2 = st.columns([2, 4, 4])
                                 with col_img:
-                                    photo_val = str(w.get('photo_path', '')) if pd.notna(
-                                        w.get('photo_path', '')) else ""
-                                    if photo_val and photo_val.strip() not in ["None", "nan", ""]:
-                                        safe_path = photo_val.replace("/", os.sep).replace("\\", os.sep)
-                                        abs_photo_path = os.path.join(BASE_DIR, safe_path)
-                                        if os.path.exists(abs_photo_path):
-                                            try:
-                                                st.image(Image.open(abs_photo_path), use_container_width=True)
-                                            except:
-                                                st.warning("画像の読込失敗")
-                                        else:
-                                            st.warning("⚠️ ファイルなし")
+                                    photo_val = str(w.get('photo_path', '')) if pd.notna(w.get('photo_path', '')) else ""
+                                    if photo_val and photo_val.startswith('http'):
+                                        st.image(photo_val, use_container_width=True)
                                     else:
-                                        st.info("📷 写真未登録")
+                                        st.info("📷 写真未登録（または旧データ）")
 
                                 with col_info1:
                                     st.write(f"**生年月日**: {format_date(w.get('birthdate'))}")
@@ -592,31 +590,8 @@ def show_data_editor():
         w = df_w[df_w['name_en'] == sw].iloc[0]
 
     target_worker_id = w['id']
-    target_dir = get_or_create_worker_dir(target_worker_id, w['name_en'])
 
     st.subheader(f"👤 {w['name_en']} さんの情報編集")
-
-    current_photo_path = str(w.get('photo_path', ''))
-    if current_photo_path and current_photo_path.strip() not in ["None", "nan", ""]:
-        old_abs_path = os.path.join(BASE_DIR, current_photo_path.replace("/", os.sep).replace("\\", os.sep))
-        new_file_name = "photo.jpg"
-        new_abs_path = os.path.join(target_dir, new_file_name)
-        new_relative_path = os.path.relpath(new_abs_path, BASE_DIR).replace("\\", "/")
-
-        if "workers" not in current_photo_path and os.path.exists(old_abs_path):
-            try:
-                shutil.move(old_abs_path, new_abs_path)
-                db.collection('foreign_workers').document(target_worker_id).update({"photo_path": new_relative_path})
-                st.toast("✅ 過去の写真を新しい個人フォルダに自動で移行しました！")
-            except Exception as e:
-                st.error(f"写真の移行中にエラー: {e}")
-
-    if st.button("📂 この人の専用フォルダをパソコンで開く"):
-        try:
-            os.startfile(target_dir)
-        except:
-            st.warning("ブラウザから直接フォルダを開けない環境です。")
-    st.info(f"保存先: {target_dir}")
 
     col_img, col_form = st.columns([1, 3])
 
@@ -628,45 +603,59 @@ def show_data_editor():
         new_photo = st.file_uploader("新しい写真を選択", type=["jpg", "png", "jpeg"], key=st.session_state.uploader_key)
 
         if new_photo is not None:
-            if st.button("🚀 写真を登録", type="primary"):
+            if st.button("🚀 写真をクラウドに保存", type="primary"):
                 try:
+                    import io
+                    # 画像のトリミング処理
                     img = Image.open(new_photo)
                     img = ImageOps.exif_transpose(img)
                     target_size = (600, 800)
                     img_cropped = ImageOps.fit(img, target_size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
                     if img_cropped.mode in ("RGBA", "P"): img_cropped = img_cropped.convert("RGB")
 
-                    file_name = "photo.jpg"
-                    abs_save_path = os.path.join(target_dir, file_name)
-                    relative_path = os.path.relpath(abs_save_path, BASE_DIR).replace("\\", "/")
-                    img_cropped.save(abs_save_path, format="JPEG", quality=85)
+                    # メモリ上で保存（パソコンにファイルを作らない）
+                    img_byte_arr = io.BytesIO()
+                    img_cropped.save(img_byte_arr, format='JPEG', quality=85)
+                    img_byte_arr.seek(0)
 
-                    db.collection('foreign_workers').document(target_worker_id).update({"photo_path": relative_path})
-                    st.success(f"✅ 写真を保存しました！");
-                    time.sleep(1.0)
-                    st.session_state.uploader_key = str(time.time());
-                    st.rerun()
+                    # ファイルタイプをセットしたダミーオブジェクトを作成
+                    class DummyFile:
+                        def __init__(self, f): self.f = f; self.type = "image/jpeg"
+
+                        def read(self, *args): return self.f.read(*args)
+
+                        def tell(self): return self.f.tell()
+
+                        def seek(self, *args): return self.f.seek(*args)
+
+                    dummy_photo = DummyFile(img_byte_arr)
+
+                    # Firebase Storageへアップロード！
+                    with st.spinner('クラウドへアップロード中...'):
+                        image_url = upload_image_to_storage(dummy_photo, target_worker_id)
+
+                    if image_url:
+                        # Firestoreの「photo_path」を、新しいURLで上書き
+                        db.collection('foreign_workers').document(target_worker_id).update({"photo_path": image_url})
+                        st.success(f"✅ 写真を保存しました！");
+                        time.sleep(1.0)
+                        st.session_state.uploader_key = str(time.time());
+                        st.rerun()
                 except Exception as e:
                     st.error(f"エラー: {e}")
 
         st.write("---")
         st.write("**現在の登録写真**")
+        # 最新情報を再取得
         doc_ref = db.collection("foreign_workers").document(target_worker_id).get()
         current_data = doc_ref.to_dict() if doc_ref.exists else {}
 
         photo_val = str(current_data.get('photo_path', ''))
-        if photo_val and photo_val.strip() not in ["None", "nan", ""]:
-            safe_path = photo_val.replace("/", os.sep).replace("\\", os.sep)
-            abs_photo_path = os.path.join(BASE_DIR, safe_path)
-            if os.path.exists(abs_photo_path):
-                try:
-                    st.image(Image.open(abs_photo_path), use_container_width=True)
-                except:
-                    st.warning("画像の読込失敗")
-            else:
-                st.warning(f"⚠️ 画像ファイルがありません")
+        # photo_pathがURL（httpから始まる）かどうかをチェックして表示
+        if photo_val and photo_val.startswith('http'):
+            st.image(photo_val, use_container_width=True)
         else:
-            st.info("写真未登録")
+            st.info("写真未登録（または旧データ）")
 
     with col_form:
         with st.form("e"):
