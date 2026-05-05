@@ -115,7 +115,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-jp_holidays = holidays.Japan(years=[2024, 2025, 2026])
+# 現在の年を自動取得して「去年・今年・来年・再来年」の4年分の祝日を常にセットする
+current_year = datetime.now().year
+jp_holidays = holidays.Japan(years=[current_year - 1, current_year, current_year + 1, current_year + 2])
 
 
 # ==========================================
@@ -800,11 +802,9 @@ def show_mileage():
         except:
             pass
 
-    if 'start_val' not in st.session_state: st.session_state.start_val = last_end_km
-    if 'end_val' not in st.session_state: st.session_state.end_val = last_end_km
-
-    def swap_values():
-        st.session_state.start_val, st.session_state.end_val = st.session_state.end_val, st.session_state.start_val
+    # エラーを防ぐため、変数名を新しく安全なもの（m_start, m_end）に変更します
+    if 'm_start' not in st.session_state: st.session_state.m_start = last_end_km
+    if 'm_end' not in st.session_state: st.session_state.m_end = last_end_km
 
     t1, t2 = st.tabs(["🔢 メーターで入力", "📏 走行距離(km)を直接入力"])
 
@@ -813,16 +813,12 @@ def show_mileage():
             d_meter = st.date_input("日付", datetime.now(), key="date_meter")
             dr_meter = st.selectbox("運転者", ["青山（妻）", "青山（夫）", "スタッフ"], key="driver_meter")
 
-            col1, col2, col3 = st.columns([4, 1, 4])
+            col1, col2 = st.columns(2)
             with col1:
-                s_meter = st.number_input("出発時メーター (km)", value=int(st.session_state.start_val), key="start_val",
-                                          step=1)
+                # ★ keyの紐付けを外し、純粋な初期値（value）としてだけ渡すように修正
+                s_meter = st.number_input("出発時メーター (km)", value=int(st.session_state.m_start), step=1)
             with col2:
-                st.write("");
-                st.write("")
-                st.button("🔄 入替", on_click=swap_values, help="出発と帰宅の数値を入れ替えます")
-            with col3:
-                e_meter = st.number_input("帰宅時メーター (km)", value=int(st.session_state.end_val), key="end_val", step=1)
+                e_meter = st.number_input("帰宅時メーター (km)", value=int(st.session_state.m_end), step=1)
 
             driven = e_meter - s_meter
             st.info(f"今回の走行距離: **{driven} km**")
@@ -834,10 +830,11 @@ def show_mileage():
                     db.collection('mileage_logs').add(
                         {"record_date": d_meter.strftime("%Y-%m-%d"), "driver_name": dr_meter, "start_km": s_meter,
                          "end_km": e_meter, "driven_km": driven})
-                    st.session_state.start_val = e_meter
-                    st.session_state.end_val = e_meter
-                    st.success("メーター記録を保存しました！");
-                    time.sleep(1);
+                    # 保存後に次の初期値を更新
+                    st.session_state.m_start = e_meter
+                    st.session_state.m_end = e_meter
+                    st.success("メーター記録を保存しました！")
+                    time.sleep(1)
                     st.rerun()
 
     with t2:
@@ -848,13 +845,15 @@ def show_mileage():
 
             if st.button("💾 距離だけを記録", type="primary"):
                 if dist > 0:
+                    new_end = last_end_km + dist
                     db.collection('mileage_logs').add(
                         {"record_date": d_direct.strftime("%Y-%m-%d"), "driver_name": dr_direct,
-                         "start_km": last_end_km, "end_km": last_end_km + dist, "driven_km": dist})
-                    st.session_state.start_val = last_end_km + dist
-                    st.session_state.end_val = last_end_km + dist
-                    st.success("走行距離を保存しました！");
-                    time.sleep(1);
+                         "start_km": last_end_km, "end_km": new_end, "driven_km": dist})
+                    # 保存後に次の初期値を更新
+                    st.session_state.m_start = new_end
+                    st.session_state.m_end = new_end
+                    st.success("走行距離を保存しました！")
+                    time.sleep(1)
                     st.rerun()
                 else:
                     st.warning("距離を入力してください。")
