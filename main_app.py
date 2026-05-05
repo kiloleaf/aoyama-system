@@ -303,11 +303,15 @@ def show_calendar():
     with col_cal:
         t_date = st.date_input("月を選択", datetime.now(), key="cal_month_view")
         y, m = t_date.year, t_date.month
+
+        # ★変更点1：カレンダーの始まりを「日曜日（SUNDAY）」に設定
+        calendar.setfirstweekday(calendar.SUNDAY)
         cal = calendar.monthcalendar(y, m)
 
         st.write(f"### {y}年 {m}月")
         cols = st.columns(7)
-        for i, d in enumerate(["月", "火", "水", "木", "金", "土", "日"]): cols[i].write(f"**{d}**")
+        # ★変更点2：上の曜日ヘッダーを「日曜日から」の順番に変更
+        for i, d in enumerate(["日", "月", "火", "水", "木", "金", "土"]): cols[i].write(f"**{d}**")
 
         for week in cal:
             cols = st.columns(7)
@@ -316,7 +320,10 @@ def show_calendar():
                     if day != 0:
                         d_date = datetime(y, m, day).date()
                         d_str = d_date.strftime("%Y-%m-%d")
-                        day_html = f"<div class='cal-day-header' style='color:{'#ff8a8a' if jp_holidays.get(d_date) or i == 6 else '#8ab4ff' if i == 5 else '#ffffff'};'>{day}</div>"
+
+                        # ★変更点3：文字色の判定を修正（i==0が日曜日、i==6が土曜日に変わるため）
+                        day_html = f"<div class='cal-day-header' style='color:{'#ff8a8a' if jp_holidays.get(d_date) or i == 0 else '#8ab4ff' if i == 6 else '#ffffff'};'>{day}</div>"
+
                         tasks_html = ""
 
                         if not df_tasks.empty:
