@@ -485,12 +485,14 @@ def show_worker_list():
     df_w = fetch_all("foreign_workers")
     df_c = fetch_all("companies")
 
+    # 🔥 【爆速化のポイント】ループに入る前に、全員分のログを「1回の通信で一括取得」しておく！
+    df_all_logs = fetch_all("worker_logs")
+
     if not df_w.empty and not df_c.empty:
         df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
         df = pd.merge(df_w, df_c[['id', 'company_name', 'address']], left_on='company_id', right_on='id', how='left')
         df = df.rename(columns={'address': 'comp_address', 'id_x': 'id'})
 
-        # ソート処理 (Pandasで代用)
         visa_order = {'技能実習1号': 1, '技能実習2号': 2, '技能実習3号': 3, '特定活動': 4, '特定技能1号': 5, '特定技能2号': 6}
         df['visa_order'] = df['visa_status'].map(visa_order).fillna(7)
         df['entry_date'] = pd.to_datetime(df['entry_date'], errors='coerce')
@@ -515,11 +517,12 @@ def show_worker_list():
                             with tab_info:
                                 col_img, col_info1, col_info2 = st.columns([2, 4, 4])
                                 with col_img:
-                                    photo_val = str(w.get('photo_path', '')) if pd.notna(w.get('photo_path', '')) else ""
+                                    photo_val = str(w.get('photo_path', '')) if pd.notna(
+                                        w.get('photo_path', '')) else ""
                                     if photo_val and photo_val.startswith('http'):
                                         st.image(photo_val, use_container_width=True)
                                     else:
-                                        st.info("📷 写真未登録（または旧データ）")
+                                        st.info("📷 写真未登録")
 
                                 with col_info1:
                                     st.write(f"**生年月日**: {format_date(w.get('birthdate'))}")
@@ -541,7 +544,13 @@ def show_worker_list():
 
                             with tab_log:
                                 w_id = str(w['id'])
-                                log_df = fetch_where("worker_logs", "worker_id", "==", w_id)
+
+                                # 🔥 【爆速化のポイント】都度通信をやめ、一括取得したデータ（メモリ上）から瞬時に探す
+                                if not df_all_logs.empty:
+                                    log_df = df_all_logs[df_all_logs['worker_id'] == w_id]
+                                else:
+                                    log_df = pd.DataFrame()
+
                                 if not log_df.empty:
                                     log_df = log_df.sort_values(by="log_date", ascending=False)
 
@@ -550,10 +559,11 @@ def show_worker_list():
                                     l_date = c_d.date_input("日付", datetime.now(), key=f"d_{w_id}")
                                     l_text = c_t.text_input("ログ内容（トラブル、ビザ変更、出来事など）", key=f"t_{w_id}")
                                     if st.form_submit_button("＋ ログを追加"):
-                                        db.collection('worker_logs').add(
-                                            {"worker_id": w_id, "log_date": l_date.strftime("%Y-%m-%d"),
-                                             "log_content": l_text, "created_at": firestore.SERVER_TIMESTAMP})
-                                        st.success("追加しました！");
+                                        db.collection('worker_logs').add({
+                                            "worker_id": w_id, "log_date": l_date.strftime("%Y-%m-%d"),
+                                            "log_content": l_text, "created_at": firestore.SERVER_TIMESTAMP
+                                        })
+                                        st.success("追加しました！")
                                         st.rerun()
 
                                 if not log_df.empty:
