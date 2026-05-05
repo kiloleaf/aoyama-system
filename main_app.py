@@ -279,11 +279,8 @@ def show_calendar():
     # タスクのデータ結合とフィルタリング
     if not df_tasks.empty:
         if not df_workers.empty:
-            # ★修正ポイント: suffixesを指定して、タスクの'id'が書き換わらないようにする
             df_tasks = pd.merge(df_tasks, df_workers[['id', 'name_en', 'company_id']], left_on='worker_id',
                                 right_on='id', how='left', suffixes=('', '_w'))
-
-            # 個人タスクの場合、company_idがNoneになっているので、worker側のcompany_id(_w)で埋める
             if 'company_id_w' in df_tasks.columns:
                 if 'company_id' not in df_tasks.columns:
                     df_tasks['company_id'] = df_tasks['company_id_w']
@@ -295,86 +292,136 @@ def show_calendar():
 
         df_tasks['name_en'] = df_tasks.get('name_en', pd.Series(dtype=str)).fillna('一般')
         df_tasks['status'] = df_tasks.get('status', '未完了')
-
-        # 地域フィルタリング
         df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
-    col1, _ = st.columns([2, 5])
-    t_date = col1.date_input("月を選択", datetime.now())
-    y, m = t_date.year, t_date.month
-    cal = calendar.monthcalendar(y, m)
+    # 🌟 ここから画面を「左(カレンダー)7：右(操作パネル)3」に分割します！
+    col_cal, col_panel = st.columns([7, 3])
 
-    st.write(f"### {y}年 {m}月")
-    cols = st.columns(7)
-    for i, d in enumerate(["月", "火", "水", "木", "金", "土", "日"]): cols[i].write(f"**{d}**")
+    # ==========================================
+    # 🗓️ 左側：カレンダー表示エリア
+    # ==========================================
+    with col_cal:
+        t_date = st.date_input("月を選択", datetime.now(), key="cal_month_view")
+        y, m = t_date.year, t_date.month
+        cal = calendar.monthcalendar(y, m)
 
-    for week in cal:
+        st.write(f"### {y}年 {m}月")
         cols = st.columns(7)
-        for i, day in enumerate(week):
-            with cols[i]:
-                if day != 0:
-                    d_date = datetime(y, m, day).date()
-                    d_str = d_date.strftime("%Y-%m-%d")
-                    day_html = f"<div class='cal-day-header' style='color:{'#ff8a8a' if jp_holidays.get(d_date) or i == 6 else '#8ab4ff' if i == 5 else '#ffffff'};'>{day}</div>"
-                    tasks_html = ""
+        for i, d in enumerate(["月", "火", "水", "木", "金", "土", "日"]): cols[i].write(f"**{d}**")
 
-                    if not df_tasks.empty:
-                        for _, t in df_tasks[df_tasks['event_date'] == d_str].iterrows():
-                            base_class = "task-item task-done" if t['status'] == '完了' else "task-item"
-                            if str(t['worker_id']) == '0': base_class += " task-general"
-                            tasks_html += f"<div class='{base_class}' style='color:#ffffff;'>{'☑' if t['status'] == '完了' else '▢'} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
+        for week in cal:
+            cols = st.columns(7)
+            for i, day in enumerate(week):
+                with cols[i]:
+                    if day != 0:
+                        d_date = datetime(y, m, day).date()
+                        d_str = d_date.strftime("%Y-%m-%d")
+                        day_html = f"<div class='cal-day-header' style='color:{'#ff8a8a' if jp_holidays.get(d_date) or i == 6 else '#8ab4ff' if i == 5 else '#ffffff'};'>{day}</div>"
+                        tasks_html = ""
 
-                    if not df_mileage.empty and 'record_date' in df_mileage.columns:
-                        daily_mileage = df_mileage[df_mileage['record_date'] == d_str]
-                        for _, m_row in daily_mileage.iterrows():
-                            driver = str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')
-                            tasks_html += f"<div class='task-item task-mileage'>🚗 {m_row.get('driven_km', 0)}km ({driver})</div>"
+                        if not df_tasks.empty:
+                            for _, t in df_tasks[df_tasks['event_date'] == d_str].iterrows():
+                                base_class = "task-item task-done" if t['status'] == '完了' else "task-item"
+                                if str(t['worker_id']) == '0': base_class += " task-general"
+                                tasks_html += f"<div class='{base_class}' style='color:#ffffff;'>{'☑' if t['status'] == '完了' else '▢'} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
 
-                    st.markdown(f'<div class="cal-cell">{day_html}{tasks_html}</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<div class="cal-cell" style="background-color:#1e1e1e; border:none;"></div>',
-                                unsafe_allow_html=True)
+                        if not df_mileage.empty and 'record_date' in df_mileage.columns:
+                            daily_mileage = df_mileage[df_mileage['record_date'] == d_str]
+                            for _, m_row in daily_mileage.iterrows():
+                                driver = str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')
+                                tasks_html += f"<div class='task-item task-mileage'>🚗 {m_row.get('driven_km', 0)}km ({driver})</div>"
 
-    st.divider()
-    st.subheader("🛠️ タスク操作")
-    t1, t2 = st.tabs(["➕ 追加", "✏️ 編集・削除"])
-    with t1:
-        task_type = st.radio("タスク種別", ["👤 外国人材関連", "🏢 会社関連・一般業務"], horizontal=True)
-        if task_type == "👤 外国人材関連":
+                        st.markdown(f'<div class="cal-cell">{day_html}{tasks_html}</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div class="cal-cell" style="background-color:#1e1e1e; border:none;"></div>',
+                                    unsafe_allow_html=True)
+
+    # ==========================================
+    # 📱 右側：操作パネルエリア
+    # ==========================================
+    with col_panel:
+        st.markdown("### 🛠️ 日別操作パネル")
+        st.info("🎯 操作したい日付を選んでください")
+        # デフォルトで左のカレンダーと同じ日付が選ばれます
+        target_date = st.date_input("操作する日付", t_date, key="panel_target_date")
+        target_str = target_date.strftime("%Y-%m-%d")
+
+        st.divider()
+
+        # --- 1. 選んだ日の予定と操作 ---
+        st.markdown(f"**【{target_str} の予定】**")
+        has_plan = False
+
+        if not df_tasks.empty:
+            day_tasks = df_tasks[df_tasks['event_date'] == target_str]
+            for _, t in day_tasks.iterrows():
+                has_plan = True
+                is_done = t['status'] == '完了'
+                icon = "☑" if is_done else "▢"
+                st.markdown(f"**{icon} {str(t['name_en'])[:4]}**: {t['task_name']}")
+
+                c1, c2 = st.columns(2)
+                if c1.button("完了/取消", key=f"tg_{t['id']}", use_container_width=True):
+                    new_status = "未完了" if is_done else "完了"
+                    db.collection('events_logs').document(t['id']).update({"status": new_status})
+                    st.rerun()
+                if c2.button("🗑️ 削除", key=f"del_{t['id']}", use_container_width=True):
+                    db.collection('events_logs').document(t['id']).delete()
+                    st.rerun()
+                st.write("---")
+
+        if not df_mileage.empty and 'record_date' in df_mileage.columns:
+            day_mileage = df_mileage[df_mileage['record_date'] == target_str]
+            for _, m_row in day_mileage.iterrows():
+                has_plan = True
+                st.markdown(f"**🚗 走行**: {m_row.get('driven_km', 0)}km ({m_row.get('driver_name', '')})")
+                if st.button("🗑️ 削除", key=f"del_m_{m_row['id']}"):
+                    db.collection('mileage_logs').document(m_row['id']).delete()
+                    st.rerun()
+                st.write("---")
+
+        if not has_plan:
+            st.caption("予定はありません")
+
+        st.divider()
+
+        # --- 2. 新規追加メニュー（アコーディオン） ---
+        st.markdown("**➕ 新規追加**")
+
+        with st.expander("👤 外国人材タスクを追加"):
             df_w = fetch_all("foreign_workers")
             df_c = fetch_all("companies")
             if not df_w.empty and not df_c.empty:
                 df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
                 df_w = pd.merge(df_w, df_c[['id', 'company_name']], left_on='company_id', right_on='id', how='left')
-
                 if not df_w.empty:
-                    ca, cb = st.columns(2)
-                    s_c = ca.selectbox("会社", sorted(df_w['company_name'].dropna().unique()))
+                    s_c = st.selectbox("会社", sorted(df_w['company_name'].dropna().unique()), key="add_w_c")
                     df_sub = df_w[df_w['company_name'] == s_c]
-                    s_w = cb.selectbox("対象者", df_sub['id_x'].tolist(),
-                                       format_func=lambda x: df_sub[df_sub['id_x'] == x]['name_en'].values[0])
-                    mode = st.radio("追加方法", ["単発", "テンプレート"], horizontal=True)
+                    s_w = st.selectbox("対象者", df_sub['id_x'].tolist(),
+                                       format_func=lambda x: df_sub[df_sub['id_x'] == x]['name_en'].values[0],
+                                       key="add_w_w")
+
+                    mode = st.radio("追加方法", ["単発", "テンプレート"], horizontal=True, key="add_w_m")
                     if mode == "単発":
-                        tn = st.text_input("タスク名")
-                        td = st.date_input("予定日", datetime.now())
-                        if st.button("追加"):
+                        tn = st.text_input("タスク名", key="add_w_t")
+                        if st.button("追加", key="btn_add_w"):
                             db.collection('events_logs').add(
-                                {"worker_id": str(s_w), "task_name": tn, "event_date": td.strftime("%Y-%m-%d"),
-                                 "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
+                                {"worker_id": str(s_w), "task_name": tn, "event_date": target_str, "status": "未完了",
+                                 "created_at": firestore.SERVER_TIMESTAMP})
                             db.collection('worker_logs').add(
-                                {"worker_id": str(s_w), "log_date": td.strftime("%Y-%m-%d"),
-                                 "log_content": f"【タスク登録】{tn}", "created_at": firestore.SERVER_TIMESTAMP})
+                                {"worker_id": str(s_w), "log_date": target_str, "log_content": f"【タスク登録】{tn}",
+                                 "created_at": firestore.SERVER_TIMESTAMP})
                             st.rerun()
                     else:
                         t_df = fetch_all("task_templates")
                         if not t_df.empty:
                             tid = st.selectbox("テンプレート", t_df['id'].tolist(),
-                                               format_func=lambda x: t_df[t_df['id'] == x]['template_name'].values[0])
-                            bd = st.date_input("基準日", datetime.now())
-                            if st.button("一括追加"):
+                                               format_func=lambda x: t_df[t_df['id'] == x]['template_name'].values[0],
+                                               key="add_w_tpl")
+                            if st.button("一括追加", key="btn_add_w_tpl"):
                                 d_df = fetch_where("template_details", "template_id", "==", tid)
                                 for _, d in d_df.iterrows():
-                                    evd = (bd + timedelta(days=int(d['offset_days']))).strftime("%Y-%m-%d")
+                                    evd = (target_date + timedelta(days=int(d['offset_days']))).strftime("%Y-%m-%d")
                                     db.collection('events_logs').add(
                                         {"worker_id": str(s_w), "task_name": d['task_name'], "event_date": evd,
                                          "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
@@ -383,53 +430,45 @@ def show_calendar():
                                                                       "created_at": firestore.SERVER_TIMESTAMP})
                                 st.rerun()
                         else:
-                            st.warning("テンプレートがありません")
-        else:
+                            st.warning("テンプレートなし")
+
+        with st.expander("🏢 一般・会社タスクを追加"):
             df_c = fetch_all("companies")
             if not df_c.empty:
                 df_c = df_c[df_c['id'].isin(valid_company_ids)]
                 c_opts = ['0'] + df_c['id'].tolist()
                 c_names = ["指定なし（一般業務）"] + df_c['company_name'].tolist()
-                s_c = st.selectbox("対象の会社（指定なしでもOK）", c_opts, format_func=lambda x: c_names[c_opts.index(x)])
-                tn_gen = st.text_input("タスク名（例：全体会議、社用車点検など）")
-                td_gen = st.date_input("予定日", datetime.now())
-                if st.button("一般業務・会社タスクを追加"):
-                    t_name = f"[{c_names[c_opts.index(s_c)]}] {tn_gen}" if s_c != '0' else tn_gen
+                s_c_gen = st.selectbox("対象の会社", c_opts, format_func=lambda x: c_names[c_opts.index(x)], key="add_g_c")
+                tn_gen = st.text_input("タスク名", key="add_g_t")
+                if st.button("追加", key="btn_add_g"):
+                    t_name = f"[{c_names[c_opts.index(s_c_gen)]}] {tn_gen}" if s_c_gen != '0' else tn_gen
                     db.collection('events_logs').add(
-                        {"worker_id": "0", "company_id": None if s_c == '0' else str(s_c), "task_name": t_name,
-                         "event_date": td_gen.strftime("%Y-%m-%d"), "status": "未完了",
-                         "created_at": firestore.SERVER_TIMESTAMP})
-                    if s_c != '0':
+                        {"worker_id": "0", "company_id": None if s_c_gen == '0' else str(s_c_gen), "task_name": t_name,
+                         "event_date": target_str, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
+                    if s_c_gen != '0':
                         db.collection('company_logs').add(
-                            {"company_id": str(s_c), "log_date": td_gen.strftime("%Y-%m-%d"),
-                             "log_content": f"【タスク登録】{tn_gen}", "created_at": firestore.SERVER_TIMESTAMP})
+                            {"company_id": str(s_c_gen), "log_date": target_str, "log_content": f"【タスク登録】{tn_gen}",
+                             "created_at": firestore.SERVER_TIMESTAMP})
                     st.rerun()
 
-    with t2:
-        if not df_tasks.empty:
-            edf = df_tasks.sort_values("event_date", ascending=False).head(40)
-
-            # ★修正ポイント：idを使ってセレクトボックスを作成（KeyError対策済）
-            s_r = st.selectbox(
-                "修正するタスク",
-                edf['id'].tolist(),
-                format_func=lambda
-                    x: f"[{edf[edf['id'] == x]['status'].values[0]}] {edf[edf['id'] == x]['event_date'].values[0]} | {edf[edf['id'] == x]['name_en'].values[0]} | {edf[edf['id'] == x]['task_name'].values[0]}"
-            )
-
-            t_d = edf[edf['id'] == s_r].iloc[0]
-            ce1, ce2, ce3 = st.columns([3, 2, 2])
-            en = ce1.text_input("タスク名修正", t_d['task_name'])
-            ed = ce2.date_input("日付修正", datetime.strptime(t_d['event_date'], '%Y-%m-%d'))
-            es = ce3.selectbox("状態", ["未完了", "完了"], index=0 if t_d.get('status', '未完了') == '未完了' else 1)
-            c_btn1, c_btn2 = st.columns([1, 1])
-            if c_btn1.button("💾 保存", use_container_width=True):
-                db.collection('events_logs').document(s_r).update(
-                    {"task_name": en, "event_date": ed.strftime("%Y-%m-%d"), "status": es})
-                st.rerun()
-            if c_btn2.button("🗑️ 削除", use_container_width=True):
-                db.collection('events_logs').document(s_r).delete()
-                st.rerun()
+        with st.expander("🚗 走行距離を記録"):
+            dr_direct = st.selectbox("運転者", ["青山（妻）", "青山（夫）", "スタッフ"], key="add_m_dr")
+            dist = st.number_input("距離 (km)", value=0, min_value=0, step=1, key="add_m_d")
+            if st.button("記録する", key="btn_add_m"):
+                if dist > 0:
+                    last_end_km = 0
+                    if not df_mileage.empty and 'end_km' in df_mileage.columns:
+                        try:
+                            last_record = df_mileage.sort_values(by="record_date", ascending=False).iloc[0]
+                            last_end_km = int(last_record.get('end_km', 0))
+                        except:
+                            pass
+                    db.collection('mileage_logs').add(
+                        {"record_date": target_str, "driver_name": dr_direct, "start_km": last_end_km,
+                         "end_km": last_end_km + dist, "driven_km": dist})
+                    st.rerun()
+                else:
+                    st.warning("距離を入力してください")
 
 
 def show_worker_list():
