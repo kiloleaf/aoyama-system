@@ -203,7 +203,7 @@ def format_date(d):
 st.sidebar.title("📂 管理メニュー")
 page = st.sidebar.radio("画面切り替え",
                         ["🏠 ダッシュボード", "🗓️ カレンダー", "👥 外国人材名簿", "📝 名簿編集", "📝 ログ", "➕ 名簿へ新規追加", "⚙️ テンプレート設定",
-                         "🚗 走行距離入力"])
+                         "🚗 走行距離入力", "🏢 会社別フォルダ"])
 
 st.sidebar.divider()
 st.sidebar.subheader("📍 地域フィルター")
