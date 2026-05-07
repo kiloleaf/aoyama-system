@@ -477,24 +477,23 @@ def show_worker_list():
     df['entry_date'] = df['entry_date'].dt.strftime('%Y-%m-%d').fillna("ー")
 
     # ==========================================
-    # 🔍 1. 絞り込み・検索エリア
+    # 🔍 1. 絞り込み・検索エリア（部分一致）
     # ==========================================
     st.markdown("### 🔍 対象者の検索")
     c1, c2 = st.columns(2)
     with c1:
-        comp_list = ["すべて"] + df['company_name'].dropna().unique().tolist()
-        selected_comp = st.selectbox("🏢 会社で絞り込む", comp_list)
+        comp_search = st.text_input("🏢 会社名で検索（部分一致）", placeholder="例：青山")
     with c2:
-        search_query = st.text_input("👤 名前で検索（ローマ字）", "")
+        name_search = st.text_input("👤 外国人材名前から検索（部分一致）", placeholder="例：John")
 
-    # フィルター適用
-    if selected_comp != "すべて":
-        df = df[df['company_name'] == selected_comp]
-    if search_query:
-        df = df[df['name_en'].str.contains(search_query, case=False, na=False)]
+    # 入力された文字でリストを部分一致フィルター
+    if comp_search:
+        df = df[df['company_name'].str.contains(comp_search, case=False, na=False)]
+    if name_search:
+        df = df[df['name_en'].str.contains(name_search, case=False, na=False)]
 
     if df.empty:
-        st.warning("条件に一致する人材がいません。")
+        st.warning("条件に一致する人材がいません。検索条件を変えてみてください。")
         return
 
     # ==========================================
@@ -502,40 +501,72 @@ def show_worker_list():
     # ==========================================
     st.divider()
 
-    # 選択肢用のリストを作成
+    # フィルターされたデータから選択肢用のリストを作成
     worker_options = df.apply(lambda r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']})", axis=1).tolist()
     worker_ids = df['id'].tolist()
 
-    selected_label = st.selectbox("👇 詳細を表示する人材を選択してください", worker_options)
+    selected_label = st.selectbox("👇 リストから対象者を選択してください", worker_options)
 
-    # 選ばれた人のIDを取得
+    # 選ばれた人のIDを取得し、データを1行抽出
     selected_idx = worker_options.index(selected_label)
     selected_id = worker_ids[selected_idx]
-
-    # 選ばれた人のデータを抽出（1行だけ）
     w = df[df['id'] == selected_id].iloc[0]
 
     # ==========================================
-    # 📋 3. 詳細データ表示エリア（選んだ1人分だけを描画するから爆速！）
+    # 📋 3. 詳細データ表示エリア（等間隔レイアウト）
     # ==========================================
     st.markdown(f"## 👤 {w['name_en']} さんの詳細データ")
 
     tab_info, tab_log, tab_files = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理"])
 
     with tab_info:
-        col_img, col_info1, col_info2 = st.columns([2, 4, 4])
+        # 💡 全体バランスを見やすくするため、画面を綺麗に4等分（1:1:1:1）します
+        col_img, col_p, col_v, col_c = st.columns(4)
+
         with col_img:
             photo_val = str(w.get('photo_path', ''))
             if photo_val.startswith('http'):
                 st.image(photo_val, use_container_width=True)
             else:
                 st.info("📷 写真未登録")
-        with col_info1:
-            st.write(
-                f"**生年月日**: {format_date(w.get('birthdate'))}\n**性別**: {format_date(w.get('gender'))}\n**国籍**: {format_date(w.get('nationality'))}\n**出身地**: {format_date(w.get('birthplace'))}\n**本国居住地**: {format_date(w.get('home_address'))}\n**パスポート**: {format_date(w.get('passport_expiration_date'))}")
-        with col_info2:
-            st.write(
-                f"**🏠 宿舎**: {format_date(w.get('residence_address'))}\n**入国日**: {format_date(w.get('entry_date'))}\n**帰国日**: {format_date(w.get('return_date'))}\n**在留期限**: {format_date(w.get('visa_expiry'))}\n**斡旋機関**: {format_date(w.get('dispatch_agency'))}\n**書類**: {format_date(w.get('document_status'))}\n**備考**: {format_date(w.get('remarks'))}")
+
+        # HTMLを使用して、項目名とデータを改行し、美しく等間隔に配置します
+        with col_p:
+            st.markdown("##### 👤 本人情報")
+            html_p = f"""
+            <div style='line-height:1.6; font-size:14px;'>
+              <b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br>
+              <b>性別</b><br>{format_date(w.get('gender'))}<br><br>
+              <b>国籍</b><br>{format_date(w.get('nationality'))}<br><br>
+              <b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br>
+              <b>本国居住地</b><br>{format_date(w.get('home_address'))}
+            </div>
+            """
+            st.markdown(html_p, unsafe_allow_html=True)
+
+        with col_v:
+            st.markdown("##### ✈️ 在留・入国情報")
+            html_v = f"""
+            <div style='line-height:1.6; font-size:14px;'>
+              <b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br>
+              <b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br>
+              <b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br>
+              <b>帰国日</b><br>{format_date(w.get('return_date'))}
+            </div>
+            """
+            st.markdown(html_v, unsafe_allow_html=True)
+
+        with col_c:
+            st.markdown("##### 🏢 所属・その他")
+            html_c = f"""
+            <div style='line-height:1.6; font-size:14px;'>
+              <b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br>
+              <b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br>
+              <b>書類状況</b><br>{format_date(w.get('document_status'))}<br><br>
+              <b>備考</b><br>{format_date(w.get('remarks'))}
+            </div>
+            """
+            st.markdown(html_c, unsafe_allow_html=True)
 
     with tab_log:
         log_df = df_all_logs[df_all_logs['worker_id'] == selected_id].sort_values(by="log_date",
@@ -561,7 +592,6 @@ def show_worker_list():
             st.info("ログはありません。")
 
     with tab_files:
-        # この1人分のファイルだけをクラウドに確認しに行くので、一瞬で終わります！
         manage_files_ui(f"workers/{selected_id}/files", label=f"{w['name_en']} さんの書類")
 
 
