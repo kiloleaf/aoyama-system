@@ -501,16 +501,22 @@ def show_worker_list():
         # ==========================================
         st.divider()
 
-        # フィルターされたデータから選択肢用のリストを作成（★在留資格の隣に入国日を追加！）
-        worker_options = df.apply(lambda r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']} / 入国日：{format_date(r.get('entry_date'))})",axis=1).tolist()
+        # ★ エラーを防ぐため、裏では「ID」を選択させ、表向きの表示だけを「名前＋入国日」に変える安全な処理
         worker_ids = df['id'].tolist()
 
-        selected_label = st.selectbox("👇 リストから対象者を選択してください", worker_options)
+        def format_worker_label(w_id):
+            # IDからその人のデータを引っ張ってきて、綺麗な文字にして返す
+            r = df[df['id'] == w_id].iloc[0]
+            return f"[{r['company_name']}] {r['name_en']} ({r['visa_status']} / 入国日：{format_date(r.get('entry_date'))})"
 
-    # 選ばれた人のIDを取得し、データを1行抽出
-    selected_idx = worker_options.index(selected_label)
-    selected_id = worker_ids[selected_idx]
-    w = df[df['id'] == selected_id].iloc[0]
+        # セレクトボックス（裏の値はID、表の表示はformat_worker_label関数で作った文字）
+        selected_id = st.selectbox("👇 リストから対象者を選択してください", worker_ids, format_func=format_worker_label)
+
+        if not selected_id:
+            return
+
+        # 選ばれた人のデータを抽出（1行だけ）
+        w = df[df['id'] == selected_id].iloc[0]
 
     # ==========================================
     # 📋 3. 詳細データ表示エリア（等間隔レイアウト）
