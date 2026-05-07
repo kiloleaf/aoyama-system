@@ -94,6 +94,57 @@ def upload_image_to_storage(image_file, worker_id, file_name="photo.jpg"):
         return None
 
 
+def manage_files_ui(path_prefix, label="ファイル"):
+    """
+    指定されたパス（path_prefix）内のファイルを管理する共通UI
+    """
+    bucket = storage.bucket(os.environ["FIREBASE_STORAGE_BUCKET"])
+
+    st.write(f"### 📂 {label}保管庫")
+
+    # --- ファイルのアップロード ---
+    uploaded_file = st.file_uploader(f"{label}をアップロード", type=["pdf", "doc", "docx", "jpg", "png"],
+                                     key=f"upload_{path_prefix}")
+    if uploaded_file is not None:
+        if st.button(f"{label}を保存", key=f"btn_save_{path_prefix}"):
+            with st.spinner("アップロード中..."):
+                blob = bucket.blob(f"{path_prefix}/{uploaded_file.name}")
+                blob.upload_from_file(uploaded_file, content_type=uploaded_file.type)
+                st.success("アップロード完了！")
+                st.rerun()
+
+    st.write("---")
+
+    # --- ファイル一覧の取得と表示 ---
+    # 指定したパスで始まるファイル（Blob）をリストアップ
+    blobs = bucket.list_blobs(prefix=path_prefix)
+
+    file_list = []
+    for b in blobs:
+        # フォルダそのものを除外（ファイル名があるものだけ）
+        file_name = b.name.replace(f"{path_prefix}/", "")
+        if file_name:
+            file_list.append(b)
+
+    if not file_list:
+        st.info("保存されているファイルはありません。")
+    else:
+        for b in file_list:
+            fname = b.name.replace(f"{path_prefix}/", "")
+            col_name, col_dl, col_del = st.columns([5, 2, 1])
+
+            col_name.write(f"📄 {fname}")
+
+            # ダウンロードURLの生成（1時間有効）
+            url = b.generate_signed_url(expiration=timedelta(hours=1), method='GET')
+            col_dl.markdown(f"[📥 ダウンロード]({url})")
+
+            if col_del.button("🗑️", key=f"del_{b.name}"):
+                b.delete()
+                st.warning(f"削除しました: {fname}")
+                st.rerun()
+
+
 # ==========================================
 # 🔥 Firebase用のデータ取得・変換関数
 # ==========================================
@@ -512,7 +563,7 @@ def show_worker_list():
                     for _, w in cdf.iterrows():
                         with st.expander(
                                 f"👤 {w['name_en']} 【{w['visa_status']}】 / 入国日: {format_date(w['entry_date'])}"):
-                            tab_info, tab_log = st.tabs(["📋 基本情報", "📝 この人のログ・履歴"])
+                            tab_info, tab_log, tab_files = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理"])
 
                             with tab_info:
                                 col_img, col_info1, col_info2 = st.columns([2, 4, 4])
@@ -572,6 +623,12 @@ def show_worker_list():
                                         st.divider()
                                 else:
                                     st.info("まだログはありません。")
+
+                            with tab_files:
+                                w_id = str(w['id'])
+                                # Firebase Storage内のパス: workers/実習生ID/files/...
+                                manage_files_ui(f"workers/{w_id}/files", label=f"{w['name_en']} さんの書類")
+
         else:
             st.info("一致するデータがありません")
     else:
@@ -915,6 +972,26 @@ def show_mileage():
                     st.warning("距離を入力してください。")
 
 
+def show_company_storage():
+    st.title("🏢 会社別 共有フォルダ")
+
+    df_c = fetch_all("companies")
+    if df_c.empty:
+        st.warning("会社が登録されていません。")
+        return
+
+    # 地域フィルターに該当する会社のみ抽出
+    df_c = df_c[df_c['id'].isin(valid_company_ids)]
+
+    selected_comp_name = st.selectbox("会社を選択してください", df_c['company_name'].tolist())
+    c_id = df_c[df_c['company_name'] == selected_comp_name]['id'].values[0]
+
+    st.divider()
+
+    # Firebase Storage内のパス: companies/会社ID/shared_files/...
+    manage_files_ui(f"companies/{c_id}/shared", label=f"{selected_comp_name} 共有")
+
+
 if page == "🏠 ダッシュボード":
     show_dashboard()
 elif page == "🗓️ カレンダー":
@@ -931,3 +1008,5 @@ elif page == "⚙️ テンプレート設定":
     show_tpl_set()
 elif page == "🚗 走行距離入力":
     show_mileage()
+elif page == "🏢 会社別フォルダ":
+    show_company_storage()
