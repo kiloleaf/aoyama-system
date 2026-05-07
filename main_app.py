@@ -496,33 +496,27 @@ def show_worker_list():
         st.warning("条件に一致する人材がいません。検索条件を変えてみてください。")
         return
 
-        # ==========================================
-        # 👤 2. 対象者の選択エリア
-        # ==========================================
-        st.divider()
+    # ==========================================
+    # 👤 2. 対象者の選択エリア
+    # ==========================================
+    st.divider()
 
-        # フィルターされたデータから選択肢用のリストを作成（★ここに入国日を追加しました）
-        worker_options = df.apply(lambda
-                                      r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']} / 入国日：{format_date(r.get('entry_date'))})",
-                                  axis=1).tolist()
-        worker_ids = df['id'].tolist()
+    # フィルターされたデータから選択肢用のリストを作成（★入国日を追加）
+    worker_options = df.apply(
+        lambda r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']} / 入国日：{format_date(r.get('entry_date'))})",
+        axis=1).tolist()
+    worker_ids = df['id'].tolist()
 
-        selected_label = st.selectbox("👇 リストから対象者を選択してください", worker_options)
+    selected_label = st.selectbox("👇 リストから対象者を選択してください", worker_options)
 
-        # ★ 安全装置：検索直後など、万が一うまく選択されていない場合はここで処理を止めてエラーを防ぐ
-        if not selected_label or selected_label not in worker_options:
-            st.stop()
+    # 選ばれた人のIDを取得し、データを1行抽出
+    selected_idx = worker_options.index(selected_label)
+    selected_id = worker_ids[selected_idx]
+    w = df[df['id'] == selected_id].iloc[0]
 
-        # 選ばれた人のIDを取得し、データを1行抽出
-        selected_idx = worker_options.index(selected_label)
-        selected_id = worker_ids[selected_idx]
-
-        # ここで確実に変数 w が作られる
-        w = df[df['id'] == selected_id].iloc[0]
-
-        # ==========================================
-        # 📋 3. 詳細データ表示エリア（等間隔レイアウト）
-        # ==========================================
+    # ==========================================
+    # 📋 3. 詳細データ表示エリア（等間隔レイアウト）
+    # ==========================================
     st.markdown(f"## 👤 {w['name_en']} さんの詳細データ")
 
     tab_info, tab_log, tab_files = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理"])
