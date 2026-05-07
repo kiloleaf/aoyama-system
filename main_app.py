@@ -457,79 +457,112 @@ def show_calendar():
 # ==========================================
 def show_worker_list():
     st.title("👥 外国人材名簿")
-    search_query = st.text_input("🔍 人材の名前 または 会社名 で検索", "")
 
     df_w = fetch_all_cached("foreign_workers")
     df_all_logs = fetch_all_cached("worker_logs")
 
-    if not df_w.empty and not df_comp_all.empty:
-        df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
-        df = pd.merge(df_w, df_comp_all[['id', 'company_name', 'address']], left_on='company_id', right_on='id',
-                      how='left')
-        df = df.rename(columns={'address': 'comp_address', 'id_x': 'id'})
-
-        visa_order = {'技能実習1号': 1, '技能実習2号': 2, '技能実習3号': 3, '特定活動': 4, '特定技能1号': 5, '特定技能2号': 6}
-        df['visa_order'] = df['visa_status'].map(visa_order).fillna(7)
-        df['entry_date'] = pd.to_datetime(df['entry_date'], errors='coerce')
-        df = df.sort_values(by=['company_name', 'visa_order', 'entry_date'], ascending=[True, True, True])
-        df['entry_date'] = df['entry_date'].dt.strftime('%Y-%m-%d').fillna("ー")
-
-        if search_query:
-            mask = df['name_en'].str.contains(search_query, case=False, na=False) | df['company_name'].str.contains(
-                search_query, case=False, na=False)
-            df = df[mask]
-
-        if not df.empty:
-            for comp in df['company_name'].unique():
-                with st.expander(f"🏢 {comp} （クリックで展開）", expanded=bool(search_query)):
-                    for _, w in df[df['company_name'] == comp].iterrows():
-                        with st.expander(
-                                f"👤 {w['name_en']} 【{w['visa_status']}】 / 入国日: {format_date(w['entry_date'])}"):
-                            tab_info, tab_log, tab_files = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理"])
-
-                            with tab_info:
-                                col_img, col_info1, col_info2 = st.columns([2, 4, 4])
-                                with col_img:
-                                    photo_val = str(w.get('photo_path', ''))
-                                    if photo_val.startswith('http'):
-                                        st.image(photo_val, use_container_width=True)
-                                    else:
-                                        st.info("📷 写真未登録")
-                                with col_info1:
-                                    st.write(
-                                        f"**生年月日**: {format_date(w.get('birthdate'))}\n**性別**: {format_date(w.get('gender'))}\n**国籍**: {format_date(w.get('nationality'))}\n**出身地**: {format_date(w.get('birthplace'))}\n**本国居住地**: {format_date(w.get('home_address'))}\n**パスポート**: {format_date(w.get('passport_expiration_date'))}")
-                                with col_info2:
-                                    st.write(
-                                        f"**🏠 宿舎**: {format_date(w.get('residence_address'))}\n**入国日**: {format_date(w.get('entry_date'))}\n**帰国日**: {format_date(w.get('return_date'))}\n**在留期限**: {format_date(w.get('visa_expiry'))}\n**斡旋機関**: {format_date(w.get('dispatch_agency'))}\n**書類**: {format_date(w.get('document_status'))}\n**備考**: {format_date(w.get('remarks'))}")
-
-                            with tab_log:
-                                w_id = str(w['id'])
-                                log_df = df_all_logs[df_all_logs['worker_id'] == w_id].sort_values(by="log_date",
-                                                                                                   ascending=False) if not df_all_logs.empty else pd.DataFrame()
-
-                                with st.form(f"log_form_{w_id}"):
-                                    c_d, c_t = st.columns([1, 3])
-                                    l_date = c_d.date_input("日付", datetime.now(), key=f"d_{w_id}")
-                                    l_text = c_t.text_input("ログ内容", key=f"t_{w_id}")
-                                    if st.form_submit_button("＋ 追加"):
-                                        db.collection('worker_logs').add(
-                                            {"worker_id": w_id, "log_date": l_date.strftime("%Y-%m-%d"),
-                                             "log_content": l_text, "created_at": firestore.SERVER_TIMESTAMP})
-                                        clear_caches()
-                                        st.success("追加しました！");
-                                        st.rerun()
-
-                                for _, l in log_df.iterrows():
-                                    st.markdown(f"**{l['log_date']}**： {l.get('log_content', '')}")
-                                    st.divider()
-                                if log_df.empty: st.info("ログはありません。")
-
-                            with tab_files:
-                                manage_files_ui(f"workers/{str(w['id'])}/files", label=f"{w['name_en']} さんの書類")
-        else:
-            st.info("一致するデータがありません")
-    else:
+    if df_w.empty or df_comp_all.empty:
         st.info("データがありません")
+        return
+
+    # データ結合と整理
+    df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
+    df = pd.merge(df_w, df_comp_all[['id', 'company_name', 'address']], left_on='company_id', right_on='id', how='left')
+    df = df.rename(columns={'address': 'comp_address', 'id_x': 'id'})
+
+    visa_order = {'技能実習1号': 1, '技能実習2号': 2, '技能実習3号': 3, '特定活動': 4, '特定技能1号': 5, '特定技能2号': 6}
+    df['visa_order'] = df['visa_status'].map(visa_order).fillna(7)
+    df['entry_date'] = pd.to_datetime(df['entry_date'], errors='coerce')
+    df = df.sort_values(by=['company_name', 'visa_order', 'entry_date'], ascending=[True, True, True])
+    df['entry_date'] = df['entry_date'].dt.strftime('%Y-%m-%d').fillna("ー")
+
+    # ==========================================
+    # 🔍 1. 絞り込み・検索エリア
+    # ==========================================
+    st.markdown("### 🔍 対象者の検索")
+    c1, c2 = st.columns(2)
+    with c1:
+        comp_list = ["すべて"] + df['company_name'].dropna().unique().tolist()
+        selected_comp = st.selectbox("🏢 会社で絞り込む", comp_list)
+    with c2:
+        search_query = st.text_input("👤 名前で検索（ローマ字）", "")
+
+    # フィルター適用
+    if selected_comp != "すべて":
+        df = df[df['company_name'] == selected_comp]
+    if search_query:
+        df = df[df['name_en'].str.contains(search_query, case=False, na=False)]
+
+    if df.empty:
+        st.warning("条件に一致する人材がいません。")
+        return
+
+    # ==========================================
+    # 👤 2. 対象者の選択エリア
+    # ==========================================
+    st.divider()
+
+    # 選択肢用のリストを作成
+    worker_options = df.apply(lambda r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']})", axis=1).tolist()
+    worker_ids = df['id'].tolist()
+
+    selected_label = st.selectbox("👇 詳細を表示する人材を選択してください", worker_options)
+
+    # 選ばれた人のIDを取得
+    selected_idx = worker_options.index(selected_label)
+    selected_id = worker_ids[selected_idx]
+
+    # 選ばれた人のデータを抽出（1行だけ）
+    w = df[df['id'] == selected_id].iloc[0]
+
+    # ==========================================
+    # 📋 3. 詳細データ表示エリア（選んだ1人分だけを描画するから爆速！）
+    # ==========================================
+    st.markdown(f"## 👤 {w['name_en']} さんの詳細データ")
+
+    tab_info, tab_log, tab_files = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理"])
+
+    with tab_info:
+        col_img, col_info1, col_info2 = st.columns([2, 4, 4])
+        with col_img:
+            photo_val = str(w.get('photo_path', ''))
+            if photo_val.startswith('http'):
+                st.image(photo_val, use_container_width=True)
+            else:
+                st.info("📷 写真未登録")
+        with col_info1:
+            st.write(
+                f"**生年月日**: {format_date(w.get('birthdate'))}\n**性別**: {format_date(w.get('gender'))}\n**国籍**: {format_date(w.get('nationality'))}\n**出身地**: {format_date(w.get('birthplace'))}\n**本国居住地**: {format_date(w.get('home_address'))}\n**パスポート**: {format_date(w.get('passport_expiration_date'))}")
+        with col_info2:
+            st.write(
+                f"**🏠 宿舎**: {format_date(w.get('residence_address'))}\n**入国日**: {format_date(w.get('entry_date'))}\n**帰国日**: {format_date(w.get('return_date'))}\n**在留期限**: {format_date(w.get('visa_expiry'))}\n**斡旋機関**: {format_date(w.get('dispatch_agency'))}\n**書類**: {format_date(w.get('document_status'))}\n**備考**: {format_date(w.get('remarks'))}")
+
+    with tab_log:
+        log_df = df_all_logs[df_all_logs['worker_id'] == selected_id].sort_values(by="log_date",
+                                                                                  ascending=False) if not df_all_logs.empty else pd.DataFrame()
+
+        with st.form(f"log_form_{selected_id}"):
+            c_d, c_t = st.columns([1, 3])
+            l_date = c_d.date_input("日付", datetime.now(), key=f"d_{selected_id}")
+            l_text = c_t.text_input("ログ内容", key=f"t_{selected_id}")
+            if st.form_submit_button("＋ 追加"):
+                db.collection('worker_logs').add(
+                    {"worker_id": selected_id, "log_date": l_date.strftime("%Y-%m-%d"), "log_content": l_text,
+                     "created_at": firestore.SERVER_TIMESTAMP})
+                clear_caches()
+                st.success("追加しました！")
+                st.rerun()
+
+        if not log_df.empty:
+            for _, l in log_df.iterrows():
+                st.markdown(f"**{l['log_date']}**： {l.get('log_content', '')}")
+                st.divider()
+        else:
+            st.info("ログはありません。")
+
+    with tab_files:
+        # この1人分のファイルだけをクラウドに確認しに行くので、一瞬で終わります！
+        manage_files_ui(f"workers/{selected_id}/files", label=f"{w['name_en']} さんの書類")
 
 
 # ==========================================
