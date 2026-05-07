@@ -496,16 +496,16 @@ def show_worker_list():
         st.warning("条件に一致する人材がいません。検索条件を変えてみてください。")
         return
 
-    # ==========================================
-    # 👤 2. 対象者の選択エリア
-    # ==========================================
-    st.divider()
+        # ==========================================
+        # 👤 2. 対象者の選択エリア
+        # ==========================================
+        st.divider()
 
-    # フィルターされたデータから選択肢用のリストを作成
-    worker_options = df.apply(lambda r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']})", axis=1).tolist()
-    worker_ids = df['id'].tolist()
+        # フィルターされたデータから選択肢用のリストを作成（★在留資格の隣に入国日を追加！）
+        worker_options = df.apply(lambda r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']} / 入国日：{format_date(r.get('entry_date'))})",axis=1).tolist()
+        worker_ids = df['id'].tolist()
 
-    selected_label = st.selectbox("👇 リストから対象者を選択してください", worker_options)
+        selected_label = st.selectbox("👇 リストから対象者を選択してください", worker_options)
 
     # 選ばれた人のIDを取得し、データを1行抽出
     selected_idx = worker_options.index(selected_label)
