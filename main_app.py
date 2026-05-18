@@ -579,11 +579,132 @@ def show_add_new():
                     st.rerun()
 
 
-def show_tpl_set(): st.write("テンプレート設定")  # 略
+# ==========================================
+# 📝 画面：ログ全般（復元）
+# ==========================================
+def show_logs_manager():
+    st.title("📝 ログ一覧（全社・全体）")
+    st.info("※会社ごとの詳細ログ入力は「🏢 会社詳細・ファイル」から行えます。")
+    t1, t2 = st.tabs(["🏢 会社ログ", "👤 個人ログ"])
+    with t1:
+        if not df_comp_all.empty:
+            df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
+            s_c = st.selectbox("会社を選択", df_c['id'].tolist(), format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0])
+            with st.form("comp_log"):
+                l_d = st.date_input("日付", datetime.now())
+                l_t = st.text_input("記録内容")
+                if st.form_submit_button("会社ログを追加"):
+                    db.collection('company_logs').add({"company_id": str(s_c), "log_date": l_d.strftime("%Y-%m-%d"), "log_content": l_t, "created_at": firestore.SERVER_TIMESTAMP})
+                    clear_caches(); st.success("追加しました！"); st.rerun()
+            c_logs = fetch_where("company_logs", "company_id", "==", str(s_c))
+            if not c_logs.empty:
+                for _, l in c_logs.sort_values(by="log_date", ascending=False).iterrows():
+                    st.markdown(f"**{l['log_date']}**： {l.get('log_content', '')}")
+                    st.divider()
+    with t2:
+        df_w = fetch_all_cached("foreign_workers")
+        if not df_w.empty and not df_comp_all.empty:
+            df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
+            df_w = pd.merge(df_w, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id', how='left')
+            if not df_w.empty:
+                s_w = st.selectbox("対象者を選択", df_w['id_x'].tolist(), format_func=lambda x: f"[{df_w[df_w['id_x'] == x]['company_name'].values[0]}] {df_w[df_w['id_x'] == x]['name_en'].values[0]}")
+                w_logs = fetch_where("worker_logs", "worker_id", "==", str(s_w))
+                if not w_logs.empty:
+                    for _, l in w_logs.sort_values(by="log_date", ascending=False).iterrows():
+                        st.markdown(f"**{l['log_date']}**： {l.get('log_content', '')}")
+                        st.divider()
 
+# ==========================================
+# ⚙️ 画面：テンプレート設定（復元）
+# ==========================================
+def show_tpl_set():
+    st.title("⚙️ テンプレート設定")
+    with st.form("t"):
+        tn = st.text_input("新規テンプレート名")
+        if st.form_submit_button("作成"):
+            db.collection('task_templates').add({"template_name": tn, "created_at": firestore.SERVER_TIMESTAMP})
+            clear_caches()
+            st.rerun()
+    df_t = fetch_all_cached("task_templates")
+    if not df_t.empty:
+        stn = st.selectbox("編集するテンプレート", df_t['id'].tolist(), format_func=lambda x: df_t[df_t['id'] == x]['template_name'].values[0])
+        if st.button("🗑️ 削除"):
+            db.collection('task_templates').document(stn).delete()
+            for d_id in fetch_where("template_details", "template_id", "==", stn)['id']:
+                db.collection('template_details').document(d_id).delete()
+            clear_caches()
+            st.rerun()
+        df_d = fetch_where("template_details", "template_id", "==", stn)
+        if not df_d.empty:
+            df_d['offset_days'] = pd.to_numeric(df_d['offset_days'])
+            st.table(df_d.sort_values(by="offset_days")[['task_name', 'offset_days']])
+            del_id = st.selectbox("削除する詳細", df_d['id'].tolist(), format_func=lambda x: df_d[df_d['id'] == x]['task_name'].values[0])
+            if st.button("❌ 削除"):
+                db.collection('template_details').document(del_id).delete()
+                clear_caches()
+                st.rerun()
+        with st.form("ad"):
+            dn = st.text_input("タスク内容")
+            do = st.number_input("日数", value=0)
+            if st.form_submit_button("追加"):
+                db.collection('template_details').add({"template_id": stn, "task_name": dn, "offset_days": do})
+                clear_caches()
+                st.rerun()
 
-def show_mileage(): st.write("走行距離")  # 略
+# ==========================================
+# 🚗 画面：走行距離入力（復元）
+# ==========================================
+def show_mileage():
+    st.title("🚗 走行距離入力")
+    df_m = fetch_all_cached("mileage_logs")
+    last_end_km = 0
+    if not df_m.empty and 'end_km' in df_m.columns:
+        try:
+            last_end_km = int(df_m.sort_values(by="record_date", ascending=False).iloc[0].get('end_km', 0))
+        except:
+            pass
 
+    if 'm_start' not in st.session_state: st.session_state.m_start = last_end_km
+    if 'm_end' not in st.session_state: st.session_state.m_end = last_end_km
+
+    t1, t2 = st.tabs(["🔢 メーター", "📏 距離直接"])
+    with t1:
+        with st.container():
+            d_meter = st.date_input("日付", datetime.now(), key="date_meter")
+            dr_meter = st.selectbox("運転者", ["青山（妻）", "青山（夫）", "スタッフ"], key="driver_meter")
+            c1, c2 = st.columns(2)
+            with c1:
+                s_meter = st.number_input("出発(km)", value=int(st.session_state.m_start), step=1)
+            with c2:
+                e_meter = st.number_input("帰宅(km)", value=int(st.session_state.m_end), step=1)
+            driven = e_meter - s_meter
+            st.info(f"今回の走行距離: **{driven} km**")
+            if st.button("💾 保存", type="primary"):
+                if driven < 0:
+                    st.error("エラー")
+                else:
+                    db.collection('mileage_logs').add({"record_date": d_meter.strftime("%Y-%m-%d"), "driver_name": dr_meter, "start_km": s_meter, "end_km": e_meter, "driven_km": driven})
+                    st.session_state.m_start = e_meter
+                    st.session_state.m_end = e_meter
+                    clear_caches()
+                    st.success("保存！")
+                    time.sleep(1)
+                    st.rerun()
+    with t2:
+        with st.container():
+            d_direct = st.date_input("日付", datetime.now(), key="date_direct")
+            dr_direct = st.selectbox("運転者", ["青山（妻）", "青山（夫）", "スタッフ"], key="driver_direct")
+            dist = st.number_input("距離 (km)", value=0, min_value=0, step=1)
+            if st.button("💾 記録", type="primary"):
+                if dist > 0:
+                    new_end = last_end_km + dist
+                    db.collection('mileage_logs').add({"record_date": d_direct.strftime("%Y-%m-%d"), "driver_name": dr_direct, "start_km": last_end_km, "end_km": new_end, "driven_km": dist})
+                    st.session_state.m_start = new_end
+                    st.session_state.m_end = new_end
+                    clear_caches()
+                    st.success("保存！")
+                    time.sleep(1)
+                    st.rerun()
 
 # ==========================================
 # 🔄 画面ルーティング
