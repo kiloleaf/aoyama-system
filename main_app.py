@@ -278,7 +278,11 @@ def show_calendar():
         t_date = st.date_input("月を選択", datetime.now(), key="cal_month_view")
         y, m = t_date.year, t_date.month
         calendar.setfirstweekday(calendar.SUNDAY)
-        for i, d in enumerate(["日", "月", "火", "水", "木", "金", "土"]): st.columns(7)[i].write(f"**{d}**")
+
+        # ★修正1：階段現象の解消（ループの「外」で1回だけ枠を作る）
+        week_cols = st.columns(7)
+        for i, d in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
+            week_cols[i].write(f"**{d}**")
 
         for week in calendar.monthcalendar(y, m):
             cols = st.columns(7)
@@ -306,23 +310,126 @@ def show_calendar():
 
     with col_panel:
         st.markdown("### 🛠️ 日別操作パネル")
-        target_str = st.date_input("操作する日付", t_date).strftime("%Y-%m-%d")
-        st.divider();
+        target_date_obj = st.date_input("操作する日付", t_date, key="panel_target_date")
+        target_str = target_date_obj.strftime("%Y-%m-%d")
+        st.divider()
         st.markdown(f"**【{target_str} の予定】**")
 
+        has_plan = False
         if not df_tasks.empty:
             for _, t in df_tasks[df_tasks['event_date'] == target_str].iterrows():
+                has_plan = True
                 is_done = t['status'] == '完了'
                 st.markdown(f"**{'☑' if is_done else '▢'} {str(t['name_en'])[:4]}**: {t['task_name']}")
                 c1, c2 = st.columns(2)
-                if c1.button("完了/取消", key=f"tg_{t['id']}"): db.collection('events_logs').document(str(t['id'])).update(
-                    {"status": "未完了" if is_done else "完了"}); clear_caches(); st.rerun()
-                if c2.button("🗑️ 削除", key=f"del_{t['id']}"): db.collection('events_logs').document(
-                    str(t['id'])).delete(); clear_caches(); st.rerun()
+                if c1.button("完了/取消", key=f"tg_{t['id']}", use_container_width=True):
+                    db.collection('events_logs').document(str(t['id'])).update({"status": "未完了" if is_done else "完了"})
+                    clear_caches();
+                    st.rerun()
+                if c2.button("🗑️ 削除", key=f"del_{t['id']}", use_container_width=True):
+                    db.collection('events_logs').document(str(t['id'])).delete()
+                    clear_caches();
+                    st.rerun()
                 st.write("---")
 
-        with st.expander("➕ タスク・距離追加"):
-            if st.button("追加画面は左メニューから行ってください"): pass  # スペース削減のため簡略化（必要であれば以前のコードを復元可）
+        if not df_mileage.empty and 'record_date' in df_mileage.columns:
+            for _, m_row in df_mileage[df_mileage['record_date'] == target_str].iterrows():
+                has_plan = True
+                st.markdown(
+                    f"**🚗 走行**: {m_row.get('driven_km', 0)}km ({str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')})")
+                if st.button("🗑️ 削除", key=f"del_m_{m_row['id']}"):
+                    db.collection('mileage_logs').document(m_row['id']).delete()
+                    clear_caches()
+                    st.rerun()
+                st.write("---")
+
+        if not has_plan: st.caption("予定はありません")
+        st.divider()
+
+        # ★修正2：消してしまっていた追加UIの完全復元
+        st.markdown("**➕ 新規追加**")
+        with st.expander("👤 外国人材タスクを追加"):
+            df_w = fetch_all_cached("foreign_workers")
+            if not df_w.empty and not df_comp_all.empty:
+                df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
+                df_w = pd.merge(df_w, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id',
+                                how='left')
+                if not df_w.empty:
+                    s_c = st.selectbox("会社", sorted(df_w['company_name'].dropna().unique()), key="add_w_c")
+                    df_sub = df_w[df_w['company_name'] == s_c]
+                    s_w = st.selectbox("対象者", df_sub['id_x'].tolist(),
+                                       format_func=lambda x: df_sub[df_sub['id_x'] == x]['name_en'].values[0],
+                                       key="add_w_w")
+
+                    mode = st.radio("追加方法", ["単発", "テンプレート"], horizontal=True, key="add_w_m")
+                    if mode == "単発":
+                        tn = st.text_input("タスク名", key="add_w_t")
+                        if st.button("追加", key="btn_add_w"):
+                            db.collection('events_logs').add(
+                                {"worker_id": str(s_w), "task_name": tn, "event_date": target_str, "status": "未完了",
+                                 "created_at": firestore.SERVER_TIMESTAMP})
+                            db.collection('worker_logs').add(
+                                {"worker_id": str(s_w), "log_date": target_str, "log_content": f"【タスク登録】{tn}",
+                                 "created_at": firestore.SERVER_TIMESTAMP})
+                            clear_caches()
+                            st.rerun()
+                    else:
+                        t_df = fetch_all_cached("task_templates")
+                        if not t_df.empty:
+                            tid = st.selectbox("テンプレート", t_df['id'].tolist(),
+                                               format_func=lambda x: t_df[t_df['id'] == x]['template_name'].values[0],
+                                               key="add_w_tpl")
+                            if st.button("一括追加", key="btn_add_w_tpl"):
+                                d_df = fetch_where("template_details", "template_id", "==", tid)
+                                for _, d in d_df.iterrows():
+                                    evd = (target_date_obj + timedelta(days=int(d['offset_days']))).strftime("%Y-%m-%d")
+                                    db.collection('events_logs').add(
+                                        {"worker_id": str(s_w), "task_name": d['task_name'], "event_date": evd,
+                                         "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
+                                    db.collection('worker_logs').add({"worker_id": str(s_w), "log_date": evd,
+                                                                      "log_content": f"【タスク登録】{d['task_name']}",
+                                                                      "created_at": firestore.SERVER_TIMESTAMP})
+                                clear_caches()
+                                st.rerun()
+
+        with st.expander("🏢 一般・会社タスクを追加"):
+            if not df_comp_all.empty:
+                df_c_sub = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
+                c_opts = ['0'] + df_c_sub['id'].tolist()
+                c_names = ["指定なし（一般業務）"] + df_c_sub['company_name'].tolist()
+                s_c_gen = st.selectbox("対象の会社", c_opts, format_func=lambda x: c_names[c_opts.index(x)], key="add_g_c")
+                tn_gen = st.text_input("タスク名", key="add_g_t")
+                if st.button("追加", key="btn_add_g"):
+                    t_name = f"[{c_names[c_opts.index(s_c_gen)]}] {tn_gen}" if s_c_gen != '0' else tn_gen
+                    db.collection('events_logs').add(
+                        {"worker_id": "0", "company_id": None if s_c_gen == '0' else str(s_c_gen), "task_name": t_name,
+                         "event_date": target_str, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
+                    if s_c_gen != '0':
+                        db.collection('company_logs').add(
+                            {"company_id": str(s_c_gen), "log_date": target_str, "log_content": f"【タスク登録】{tn_gen}",
+                             "created_at": firestore.SERVER_TIMESTAMP})
+                    clear_caches()
+                    st.rerun()
+
+        with st.expander("🚗 走行距離を記録"):
+            dr_direct = st.selectbox("運転者", ["青山（妻）", "青山（夫）", "スタッフ"], key="add_m_dr")
+            dist = st.number_input("距離 (km)", value=0, min_value=0, step=1, key="add_m_d")
+            if st.button("記録する", key="btn_add_m"):
+                if dist > 0:
+                    last_end_km = 0
+                    if not df_mileage.empty and 'end_km' in df_mileage.columns:
+                        try:
+                            last_end_km = int(
+                                df_mileage.sort_values(by="record_date", ascending=False).iloc[0].get('end_km', 0))
+                        except:
+                            pass
+                    db.collection('mileage_logs').add(
+                        {"record_date": target_str, "driver_name": dr_direct, "start_km": last_end_km,
+                         "end_km": last_end_km + dist, "driven_km": dist})
+                    clear_caches()
+                    st.rerun()
+                else:
+                    st.warning("距離を入力してください")
 
 
 # ==========================================
