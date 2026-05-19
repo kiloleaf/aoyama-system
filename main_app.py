@@ -140,7 +140,7 @@ current_year = datetime.now().year
 jp_holidays = holidays.Japan(years=[current_year - 1, current_year, current_year + 1, current_year + 2])
 
 # ==========================================
-# 📂 サイドバーと共通フィルター（ご指定の名称に一新）
+# 📂 サイドバーと共通フィルター
 # ==========================================
 st.sidebar.title("📂 管理メニュー")
 page = st.sidebar.radio("画面切り替え", [
@@ -158,13 +158,12 @@ valid_company_ids = df_comp_all[df_comp_all['area'].isin(selected_areas)][
 
 
 # ==========================================
-# 🏠 画面：ダッシュボード（前後30日間の連動仕様へ強化）
+# 🏠 画面：ダッシュボード（前後30日間の連動仕様）
 # ==========================================
 def show_dashboard():
     st.title("🏠 総合ダッシュボード")
     today = datetime.now().date()
 
-    # 🌟 修正ポイント1: 今現在の日付から「前後30日間（計60日間）」に期間を厳選
     start_window = today - timedelta(days=30)
     end_window = today + timedelta(days=30)
 
@@ -190,10 +189,8 @@ def show_dashboard():
             df_tasks['company_name'] = df_tasks['company_name'].fillna('🏢 【一般業務】')
             df_tasks['status'] = df_tasks.get('status', '未完了')
 
-            # 地域・一般業務フィルター
             df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
-            # 🌟 期間フィルタリングを実行
             if not df_tasks.empty:
                 df_tasks['event_date_obj'] = pd.to_datetime(df_tasks['event_date']).dt.date
                 df_tasks = df_tasks[
@@ -275,12 +272,11 @@ def show_dashboard():
 
 
 # ==========================================
-# 🗓️ 画面：カレンダー（「今日に戻る」機能 ＆ 今日のハイライト表示）
+# 🗓️ 画面：カレンダー
 # ==========================================
 def show_calendar():
     st.title("🗓️ カレンダー")
 
-    # 🌟 修正ポイント2: 今日へ戻るためのセッション状態の制御
     if 'cal_current_date' not in st.session_state:
         st.session_state.cal_current_date = datetime.now().date()
 
@@ -299,13 +295,12 @@ def show_calendar():
 
     col_cal, col_panel = st.columns([7, 3])
     with col_cal:
-        # 今日に戻るボタン
         if st.button("📅 今日に戻る", type="secondary"):
             st.session_state.cal_current_date = datetime.now().date()
             st.rerun()
 
         t_date = st.date_input("月を選択", st.session_state.cal_current_date, key="cal_month_view")
-        st.session_state.cal_current_date = t_date  # 入力された日付を記憶
+        st.session_state.cal_current_date = t_date
         y, m = t_date.year, t_date.month
         calendar.setfirstweekday(calendar.SUNDAY)
 
@@ -321,10 +316,8 @@ def show_calendar():
                         d_date = datetime(y, m, day).date()
                         d_str = d_date.strftime("%Y-%m-%d")
 
-                        # 🌟 修正ポイント3: 今日(今日の日付)なら特別ハイライトの枠線と背景を施す
                         is_today = (d_date == datetime.now().date())
                         bg_style = "background-color: #1c3322; border: 2px solid #2ea44f;" if is_today else ""
-
                         color = '#ff8a8a' if jp_holidays.get(d_date) or i == 0 else '#8ab4ff' if i == 6 else '#ffffff'
                         html = f"<div class='cal-day-header' style='color:{color};'>{'📍 今日 ' if is_today else ''}{day}</div>"
 
@@ -468,7 +461,7 @@ def show_calendar():
 
 
 # ==========================================
-# 👥 画面：人材名簿（名簿編集機能をここに完全統合！）
+# 👥 画面：人材名簿（名簿編集機能を完全統合）
 # ==========================================
 def show_worker_list():
     st.title("👥 人材名簿")
@@ -503,7 +496,6 @@ def show_worker_list():
 
     st.markdown(f"## 👤 {w['name_en']} さんの詳細データ")
 
-    # 🌟 修正ポイント4: タブの中に情報編集機能を直接埋め込み、2画面往復の手間を排除
     tab_info, tab_log, tab_files, tab_edit = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理", "✏️ 登録情報の編集"])
 
     with tab_info:
@@ -538,7 +530,6 @@ def show_worker_list():
                 clear_caches();
                 st.rerun()
 
-        # 個人ログの一覧表示と「編集・削除」機能の実装
         for _, l in log_df.iterrows():
             with st.expander(f"📅 {l['log_date']} ： {l.get('log_content', '')}"):
                 with st.form(f"edit_w_log_{l['id']}"):
@@ -559,7 +550,6 @@ def show_worker_list():
         manage_files_ui(f"workers/{selected_id}/files", label=f"{w['name_en']} さんの書類")
 
     with tab_edit:
-        # 統合された編集フォーム
         st.subheader(f"👤 {w['name_en']} さんの文字情報・写真修正")
         col_edit_img, col_edit_form = st.columns([1, 3])
         with col_edit_img:
@@ -603,12 +593,19 @@ def show_worker_list():
                 nbirthp = st.text_input("出身地", value=format_date(w.get('birthplace', '')))
                 nhome = st.text_input("本国居住地", value=format_date(w.get('home_address', '')))
 
-                def pd_dt(s): return datetime.strptime(str(s), '%Y-%m-%d') if pd.notna(s) and str(s) not in ["ー", "nan",
-                                                                                                             "None",
-                                                                                                             ""] else datetime.now()
+                def safe_date_parse(date_str):
+                    if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー"]:
+                        return datetime.now().date()
+                    try:
+                        return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
+                    except:
+                        try:
+                            return datetime.strptime(str(date_str).strip()[:10], '%Y/%m/%d').date()
+                        except:
+                            return datetime.now().date()
 
-                nv = st.date_input("在留期限", pd_dt(w.get('visa_expiry', '')))
-                np_exp = st.date_input("パスポート期限", pd_dt(w.get('passport_expiration_date', '')))
+                nv = st.date_input("在留期限", safe_date_parse(w.get('visa_expiry', '')))
+                np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
 
                 nentry = st.text_input("入国日", value=format_date(w.get('entry_date', '')))
                 nret = st.text_input("帰国日", value=format_date(w.get('return_date', '')))
@@ -635,7 +632,7 @@ def show_worker_list():
 
 
 # ==========================================
-# 🏢 画面：会社情報（名称変更 ＆ ログ完全編集対応）
+# 🏢 画面：会社情報
 # ==========================================
 def show_company_details():
     st.title("🏢 会社情報")
@@ -654,13 +651,19 @@ def show_company_details():
             st.markdown("##### ⚙️ 各種設定・期限")
             c1, c2 = st.columns(2)
 
-            def pd_dt(s): return datetime.strptime(str(s), '%Y-%m-%d') if pd.notna(s) and str(s) not in ["ー", "nan",
-                                                                                                         "None",
-                                                                                                         ""] else datetime.now()
+            def safe_date_parse_comp(date_str):
+                if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー"]: return datetime.now().date()
+                try:
+                    return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
+                except:
+                    try:
+                        return datetime.strptime(str(date_str).strip()[:10], '%Y/%m/%d').date()
+                    except:
+                        return datetime.now().date()
 
             with c1:
-                a36 = st.date_input("36協定 期限日（過ぎるとアラート）", pd_dt(c_data.get('agreement_36_date')))
-                tr_d = st.date_input("講習日（6ヶ月前からアラート）", pd_dt(c_data.get('training_date')))
+                a36 = st.date_input("36協定 期限日（過ぎるとアラート）", safe_date_parse_comp(c_data.get('agreement_36_date')))
+                tr_d = st.date_input("講習日（6ヶ月前からアラート）", safe_date_parse_comp(c_data.get('training_date')))
                 wp_opts = ["未確認", "◯", "✖"]
                 wp_val = str(c_data.get('workplace_confirmed', '未確認'))
                 wp = st.selectbox("実習場所確認", wp_opts, index=wp_opts.index(wp_val) if wp_val in wp_opts else 0)
@@ -705,7 +708,6 @@ def show_company_details():
             filter_cat = st.radio("表示フィルター", ["すべて"] + log_cats, horizontal=True)
             if filter_cat != "すべて": c_logs = c_logs[c_logs['log_category'] == filter_cat]
 
-            # 🌟 修正ポイント5: 会社ログの一覧でも編集・削除を行えるようにアップグレード
             for _, l in c_logs.sort_values(by="log_date", ascending=False).iterrows():
                 with st.expander(f"📅 {l['log_date']} 【{l['log_category']}】 ： {l.get('log_content', '')}"):
                     with st.form(f"edit_c_log_form_{l['id']}"):
@@ -729,12 +731,10 @@ def show_company_details():
 
 
 # ==========================================
-# 📝 画面：ログ一覧（名称変更 ＆ リアルタイム検索機能 ＆ 編集・削除の実装）
+# 📝 画面：ログ一覧
 # ==========================================
 def show_logs_manager():
     st.title("📝 ログ一覧")
-
-    # 🌟 修正ポイント6: ログを探し出すための「キーワード検索機能」を新設
     search_keyword = st.text_input("🔍 ログの内容からキーワード検索（部分一致）", placeholder="例: トラブル、会議、検診など")
 
     t1, t2 = st.tabs(["🏢 会社関連のログ", "👤 人材（個人）のログ"])
@@ -812,7 +812,7 @@ def show_logs_manager():
 
 
 # ==========================================
-# ➕ 画面：新規登録（名称変更）
+# ➕ 画面：新規登録
 # ==========================================
 def show_add_new():
     st.title("➕ 新規登録")
@@ -949,7 +949,7 @@ def show_mileage():
 
 
 # ==========================================
-# 🔄 画面ルーティング（新しい名称に対応）
+# 🔄 画面ルーティング
 # ==========================================
 if page == "🏠 ダッシュボード":
     show_dashboard()
@@ -967,4 +967,3 @@ elif page == "⚙️ テンプレート設定":
     show_tpl_set()
 elif page == "🚗 走行距離入力":
     show_mileage()
-    
