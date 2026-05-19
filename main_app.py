@@ -178,7 +178,6 @@ def show_dashboard():
         df_workers = fetch_all_cached("foreign_workers")
 
         if not df_tasks.empty:
-            # 🌟 修正ポイント：エラー防止の安全な列初期化
             if 'category' not in df_tasks.columns:
                 df_tasks['category'] = '一般業務'
             else:
@@ -214,13 +213,11 @@ def show_dashboard():
 
             df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
-            # 期間フィルタリング
             if not df_tasks.empty:
                 df_tasks['event_date_obj'] = pd.to_datetime(df_tasks['event_date']).dt.date
                 df_tasks = df_tasks[
                     (df_tasks['event_date_obj'] >= start_window) & (df_tasks['event_date_obj'] <= end_window)]
 
-            # カテゴリフィルタリング
             if task_filter == "帰国手続きのみ":
                 df_tasks = df_tasks[df_tasks['category'] == "帰国手続き"]
             elif task_filter == "入管手続きのみ":
@@ -341,7 +338,6 @@ def show_calendar():
         df_tasks['company_id'] = df_tasks.get('company_id_w', df_tasks.get('company_id'))
 
     if not df_tasks.empty:
-        # 🌟 修正ポイント：エラー防止の安全な列初期化
         if 'name_en' not in df_tasks.columns:
             df_tasks['name_en'] = '一般'
         else:
@@ -466,16 +462,11 @@ def show_calendar():
                         tn = st.text_input("タスク名", key="add_w_t")
                         if st.button("追加", key="btn_add_w"):
                             db.collection('events_logs').add({
-                                "worker_id": str(s_w),
-                                "task_name": str(tn),
-                                "category": str(task_cat),
-                                "event_date": target_str,
-                                "status": "未完了",
-                                "created_at": firestore.SERVER_TIMESTAMP
+                                "worker_id": str(s_w), "task_name": str(tn), "category": str(task_cat),
+                                "event_date": target_str, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP
                             })
                             db.collection('worker_logs').add({
-                                "worker_id": str(s_w),
-                                "log_date": target_str,
+                                "worker_id": str(s_w), "log_date": target_str,
                                 "log_content": f"【タスク登録/{task_cat}】{str(tn)}",
                                 "created_at": firestore.SERVER_TIMESTAMP
                             })
@@ -492,16 +483,11 @@ def show_calendar():
                                 for _, d in d_df.iterrows():
                                     evd = (target_date_obj + timedelta(days=int(d['offset_days']))).strftime("%Y-%m-%d")
                                     db.collection('events_logs').add({
-                                        "worker_id": str(s_w),
-                                        "task_name": str(d['task_name']),
-                                        "category": "一般業務",
-                                        "event_date": evd,
-                                        "status": "未完了",
-                                        "created_at": firestore.SERVER_TIMESTAMP
+                                        "worker_id": str(s_w), "task_name": str(d['task_name']), "category": "一般業務",
+                                        "event_date": evd, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP
                                     })
                                     db.collection('worker_logs').add({
-                                        "worker_id": str(s_w),
-                                        "log_date": evd,
+                                        "worker_id": str(s_w), "log_date": evd,
                                         "log_content": f"【タスク登録】{str(d['task_name'])}",
                                         "created_at": firestore.SERVER_TIMESTAMP
                                     })
@@ -518,12 +504,8 @@ def show_calendar():
                 if st.button("追加", key="btn_add_g"):
                     t_name = f"[{c_names[c_opts.index(s_c_gen)]}] {str(tn_gen)}" if s_c_gen != '0' else str(tn_gen)
                     db.collection('events_logs').add({
-                        "worker_id": "0",
-                        "company_id": None if s_c_gen == '0' else str(s_c_gen),
-                        "task_name": t_name,
-                        "category": "一般業務",
-                        "event_date": target_str,
-                        "status": "未完了",
+                        "worker_id": "0", "company_id": None if s_c_gen == '0' else str(s_c_gen), "task_name": t_name,
+                        "category": "一般業務", "event_date": target_str, "status": "未完了",
                         "created_at": firestore.SERVER_TIMESTAMP
                     })
                     if s_c_gen != '0':
@@ -650,6 +632,8 @@ def show_worker_list():
             st.write("📷 **新しい写真の登録**")
             if "uploader_key" not in st.session_state: st.session_state.uploader_key = str(time.time())
             new_photo = st.file_uploader("写真を選択", type=["jpg", "png", "jpeg"], key=st.session_state.uploader_key)
+
+            # 🌟 修正ポイント：DummyFileに tell と seek を追加してエラーを完全排除
             if new_photo and st.button("🚀 写真を保存", type="primary", key=f"btn_p_save_{selected_id}"):
                 import io
                 img = Image.open(new_photo);
@@ -664,6 +648,10 @@ def show_worker_list():
                     def __init__(self, f): self.f = f; self.type = "image/jpeg"
 
                     def read(self, *args): return self.f.read(*args)
+
+                    def tell(self): return self.f.tell()
+
+                    def seek(self, *args): return self.f.seek(*args)
 
                 with st.spinner('送信中...'):
                     url = upload_image_to_storage(DummyFile(img_byte_arr), selected_id)
