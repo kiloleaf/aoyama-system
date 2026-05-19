@@ -158,7 +158,7 @@ valid_company_ids = df_comp_all[df_comp_all['area'].isin(selected_areas)][
 
 
 # ==========================================
-# 🏠 画面：ダッシュボード（カテゴリ抽出フィルター搭載）
+# 🏠 画面：ダッシュボード
 # ==========================================
 def show_dashboard():
     st.title("🏠 総合ダッシュボード")
@@ -171,7 +171,6 @@ def show_dashboard():
     with col1:
         st.subheader(f"📋 直近のタスク一覧 ({start_window} ～ {end_window})")
 
-        # 🌟 修正ポイント：タスクの表示フィルターを追加
         task_filter = st.radio("表示するタスクの種類", ["すべて表示", "帰国手続きのみ", "入管手続きのみ"], horizontal=True)
         st.write("---")
 
@@ -179,8 +178,16 @@ def show_dashboard():
         df_workers = fetch_all_cached("foreign_workers")
 
         if not df_tasks.empty:
-            # カテゴリ列が存在しない古いデータの保護
-            df_tasks['category'] = df_tasks.get('category', '一般業務').fillna('一般業務')
+            # 🌟 修正ポイント：エラー防止の安全な列初期化
+            if 'category' not in df_tasks.columns:
+                df_tasks['category'] = '一般業務'
+            else:
+                df_tasks['category'] = df_tasks['category'].fillna('一般業務')
+
+            if 'status' not in df_tasks.columns:
+                df_tasks['status'] = '未完了'
+            else:
+                df_tasks['status'] = df_tasks['status'].fillna('未完了')
 
             if not df_workers.empty:
                 df_tasks = pd.merge(df_tasks, df_workers[['id', 'name_en', 'company_id']], left_on='worker_id',
@@ -188,15 +195,22 @@ def show_dashboard():
             else:
                 df_tasks['name_en'] = '一般'
                 df_tasks['company_id'] = None
+
             if not df_comp_all.empty:
                 df_tasks = pd.merge(df_tasks, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id',
                                     how='left', suffixes=('', '_c'))
             else:
                 df_tasks['company_name'] = '🏢 【一般業務】'
 
-            df_tasks['name_en'] = df_tasks['name_en'].fillna('共通タスク')
-            df_tasks['company_name'] = df_tasks['company_name'].fillna('🏢 【一般業務】')
-            df_tasks['status'] = df_tasks.get('status', '未完了')
+            if 'name_en' not in df_tasks.columns:
+                df_tasks['name_en'] = '共通タスク'
+            else:
+                df_tasks['name_en'] = df_tasks['name_en'].fillna('共通タスク')
+
+            if 'company_name' not in df_tasks.columns:
+                df_tasks['company_name'] = '🏢 【一般業務】'
+            else:
+                df_tasks['company_name'] = df_tasks['company_name'].fillna('🏢 【一般業務】')
 
             df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
@@ -206,7 +220,7 @@ def show_dashboard():
                 df_tasks = df_tasks[
                     (df_tasks['event_date_obj'] >= start_window) & (df_tasks['event_date_obj'] <= end_window)]
 
-            # 🌟 カテゴリによる抽出フィルタリング
+            # カテゴリフィルタリング
             if task_filter == "帰国手続きのみ":
                 df_tasks = df_tasks[df_tasks['category'] == "帰国手続き"]
             elif task_filter == "入管手続きのみ":
@@ -220,7 +234,6 @@ def show_dashboard():
                         is_done = r['status'] == '完了'
                         c_date.write(r['event_date'])
 
-                        # 🌟 カテゴリバッジを表示（帰国手続きなどは目立たせる）
                         cat_badge = ""
                         if r['category'] == "帰国手続き":
                             cat_badge = "<span style='color:#ff4b4b; font-weight:bold;'>【帰国】</span> "
@@ -326,11 +339,25 @@ def show_calendar():
         df_tasks = pd.merge(df_tasks, df_workers[['id', 'name_en', 'company_id']], left_on='worker_id', right_on='id',
                             how='left', suffixes=('', '_w'))
         df_tasks['company_id'] = df_tasks.get('company_id_w', df_tasks.get('company_id'))
-    df_tasks['name_en'] = df_tasks.get('name_en', pd.Series(dtype=str)).fillna('一般')
-    df_tasks['status'] = df_tasks.get('status', '未完了')
-    df_tasks['category'] = df_tasks.get('category', '一般業務').fillna('一般業務')
-    if not df_tasks.empty: df_tasks = df_tasks[
-        (df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
+
+    if not df_tasks.empty:
+        # 🌟 修正ポイント：エラー防止の安全な列初期化
+        if 'name_en' not in df_tasks.columns:
+            df_tasks['name_en'] = '一般'
+        else:
+            df_tasks['name_en'] = df_tasks['name_en'].fillna('一般')
+
+        if 'status' not in df_tasks.columns:
+            df_tasks['status'] = '未完了'
+        else:
+            df_tasks['status'] = df_tasks['status'].fillna('未完了')
+
+        if 'category' not in df_tasks.columns:
+            df_tasks['category'] = '一般業務'
+        else:
+            df_tasks['category'] = df_tasks['category'].fillna('一般業務')
+
+        df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
     col_cal, col_panel = st.columns([7, 3])
     with col_cal:
@@ -365,7 +392,6 @@ def show_calendar():
                             for _, t in df_tasks[df_tasks['event_date'] == d_str].iterrows():
                                 base_class = "task-item task-done" if t['status'] == '完了' else "task-item"
                                 if str(t['worker_id']) == '0': base_class += " task-general"
-                                # カレンダー内でも帰国や入管カテゴリを目立たせる場合は絵文字を追加
                                 cat_icon = "🛫" if t['category'] == "帰国手続き" else "🏢" if t[
                                                                                              'category'] == "入管手続き" else "☑" if \
                                 t['status'] == '完了' else "▢"
@@ -436,14 +462,13 @@ def show_calendar():
 
                     mode = st.radio("追加方法", ["単発", "テンプレート"], horizontal=True, key="add_w_m")
                     if mode == "単発":
-                        # 🌟 修正ポイント：タスク追加時にカテゴリを選択できるようにする
                         task_cat = st.selectbox("タスクカテゴリ", ["一般業務", "帰国手続き", "入管手続き"], key="add_w_cat")
                         tn = st.text_input("タスク名", key="add_w_t")
                         if st.button("追加", key="btn_add_w"):
                             db.collection('events_logs').add({
                                 "worker_id": str(s_w),
                                 "task_name": str(tn),
-                                "category": str(task_cat),  # DBにカテゴリを保存
+                                "category": str(task_cat),
                                 "event_date": target_str,
                                 "status": "未完了",
                                 "created_at": firestore.SERVER_TIMESTAMP
@@ -469,7 +494,7 @@ def show_calendar():
                                     db.collection('events_logs').add({
                                         "worker_id": str(s_w),
                                         "task_name": str(d['task_name']),
-                                        "category": "一般業務",  # テンプレートは一律一般業務とする
+                                        "category": "一般業務",
                                         "event_date": evd,
                                         "status": "未完了",
                                         "created_at": firestore.SERVER_TIMESTAMP
@@ -775,7 +800,11 @@ def show_company_details():
 
         c_logs = fetch_where("company_logs", "company_id", "==", c_id)
         if not c_logs.empty:
-            c_logs['log_category'] = c_logs.get('log_category', '一般').fillna('一般')
+            if 'log_category' not in c_logs.columns:
+                c_logs['log_category'] = '一般'
+            else:
+                c_logs['log_category'] = c_logs['log_category'].fillna('一般')
+
             filter_cat = st.radio("表示フィルター", ["すべて"] + log_cats, horizontal=True)
             if filter_cat != "すべて": c_logs = c_logs[c_logs['log_category'] == filter_cat]
 
