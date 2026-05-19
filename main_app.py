@@ -158,7 +158,7 @@ valid_company_ids = df_comp_all[df_comp_all['area'].isin(selected_areas)][
 
 
 # ==========================================
-# 🏠 画面：ダッシュボード（前後30日間の連動仕様）
+# 🏠 画面：ダッシュボード
 # ==========================================
 def show_dashboard():
     st.title("🏠 総合ダッシュボード")
@@ -461,7 +461,7 @@ def show_calendar():
 
 
 # ==========================================
-# 👥 画面：人材名簿（名簿編集機能を完全統合）
+# 👥 画面：人材名簿
 # ==========================================
 def show_worker_list():
     st.title("👥 人材名簿")
@@ -731,11 +731,10 @@ def show_company_details():
 
 
 # ==========================================
-# 📝 画面：ログ一覧
+# 📝 画面：ログ一覧（会社名・名前での部分一致検索機能）
 # ==========================================
 def show_logs_manager():
     st.title("📝 ログ一覧")
-    search_keyword = st.text_input("🔍 ログの内容からキーワード検索（部分一致）", placeholder="例: トラブル、会議、検診など")
 
     t1, t2 = st.tabs(["🏢 会社関連のログ", "👤 人材（個人）のログ"])
     log_cats = ["一般", "有給消化", "指導員", "特別教育", "健康診断", "その他軽微変更", "年末調整", "最賃確認", "キャリアアップ"]
@@ -743,14 +742,19 @@ def show_logs_manager():
     with t1:
         if not df_comp_all.empty:
             df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
-            s_c = st.selectbox("会社を選択", df_c['id'].tolist(),
-                               format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0],
-                               key="log_mgr_c_select")
-            c_logs = fetch_where("company_logs", "company_id", "==", str(s_c))
 
-            if not c_logs.empty:
-                if search_keyword:
-                    c_logs = c_logs[c_logs['log_content'].str.contains(search_keyword, case=False, na=False)]
+            # 🌟 修正ポイント: 会社名での部分一致検索
+            comp_search = st.text_input("🏢 会社名で検索（部分一致）", placeholder="例：青山", key="log_comp_search")
+            if comp_search:
+                df_c = df_c[df_c['company_name'].str.contains(comp_search, case=False, na=False)]
+
+            if df_c.empty:
+                st.warning("該当する会社がありません。検索条件を変えてみてください。")
+            else:
+                s_c = st.selectbox("会社を選択", df_c['id'].tolist(),
+                                   format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0],
+                                   key="log_mgr_c_select")
+                c_logs = fetch_where("company_logs", "company_id", "==", str(s_c))
 
                 if not c_logs.empty:
                     for _, l in c_logs.sort_values(by="log_date", ascending=False).iterrows():
@@ -773,42 +777,53 @@ def show_logs_manager():
                                     st.rerun()
                 else:
                     st.write("該当するログはありません。")
-            else:
-                st.write("記録なし")
+        else:
+            st.write("登録されている会社がありません。")
 
     with t2:
         df_w = fetch_all_cached("foreign_workers")
         if not df_w.empty and not df_comp_all.empty:
             df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
             df_w = pd.merge(df_w, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id', how='left')
-            if not df_w.empty:
+
+            # 🌟 修正ポイント: 人材名簿と同じ会社名・名前での部分一致検索
+            lc1, lc2 = st.columns(2)
+            with lc1:
+                w_comp_search = st.text_input("🏢 会社名で検索（部分一致）", placeholder="例：青山", key="log_w_comp_search")
+            with lc2:
+                w_name_search = st.text_input("👤 名前で検索（部分一致）", placeholder="例：John", key="log_w_name_search")
+
+            if w_comp_search:
+                df_w = df_w[df_w['company_name'].str.contains(w_comp_search, case=False, na=False)]
+            if w_name_search:
+                df_w = df_w[df_w['name_en'].str.contains(w_name_search, case=False, na=False)]
+
+            if df_w.empty:
+                st.warning("該当する対象者がいません。検索条件を変えてみてください。")
+            else:
                 s_w = st.selectbox("対象者を選択", df_w['id_x'].tolist(), format_func=lambda
                     x: f"[{df_w[df_w['id_x'] == x]['company_name'].values[0]}] {df_w[df_w['id_x'] == x]['name_en'].values[0]}")
                 w_logs = fetch_where("worker_logs", "worker_id", "==", str(s_w))
 
                 if not w_logs.empty:
-                    if search_keyword:
-                        w_logs = w_logs[w_logs['log_content'].str.contains(search_keyword, case=False, na=False)]
-
-                    if not w_logs.empty:
-                        for _, l in w_logs.sort_values(by="log_date", ascending=False).iterrows():
-                            with st.expander(f"📅 {l['log_date']} : {l.get('log_content', '')}"):
-                                with st.form(f"mgr_edit_w_log_{l['id']}"):
-                                    t_w_input = st.text_input("ログ内容変更", value=l.get('log_content', ''))
-                                    wb1, wb2 = st.columns(2)
-                                    if wb1.form_submit_button("💾 保存", use_container_width=True):
-                                        db.collection('worker_logs').document(l['id']).update(
-                                            {"log_content": str(t_w_input)})
-                                        clear_caches();
-                                        st.rerun()
-                                    if wb2.form_submit_button("🗑️ 削除", use_container_width=True):
-                                        db.collection('worker_logs').document(l['id']).delete()
-                                        clear_caches();
-                                        st.rerun()
-                    else:
-                        st.write("該当するログはありません。")
+                    for _, l in w_logs.sort_values(by="log_date", ascending=False).iterrows():
+                        with st.expander(f"📅 {l['log_date']} : {l.get('log_content', '')}"):
+                            with st.form(f"mgr_edit_w_log_{l['id']}"):
+                                t_w_input = st.text_input("ログ内容変更", value=l.get('log_content', ''))
+                                wb1, wb2 = st.columns(2)
+                                if wb1.form_submit_button("💾 保存", use_container_width=True):
+                                    db.collection('worker_logs').document(l['id']).update(
+                                        {"log_content": str(t_w_input)})
+                                    clear_caches();
+                                    st.rerun()
+                                if wb2.form_submit_button("🗑️ 削除", use_container_width=True):
+                                    db.collection('worker_logs').document(l['id']).delete()
+                                    clear_caches();
+                                    st.rerun()
                 else:
-                    st.write("記録なし")
+                    st.write("該当するログはありません。")
+        else:
+            st.write("登録されている人材データがありません。")
 
 
 # ==========================================
