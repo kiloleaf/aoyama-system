@@ -217,26 +217,44 @@ def show_dashboard():
             st.write("タスクデータがありません。")
 
     with col2:
-        st.subheader("🛂 人材 期限アラート (5ヶ月以内)")
+        st.subheader("🛂 人材 期限・トラブル防止アラート")
         df_w = fetch_all_cached("foreign_workers")
         w_alerts = []
         if not df_w.empty and not df_comp_all.empty:
             df_merged = pd.merge(df_w[df_w['company_id'].isin(valid_company_ids)], df_comp_all[['id', 'company_name']],
                                  left_on='company_id', right_on='id', how='left')
-            limit = today + timedelta(days=150)
+            limit_5m = today + timedelta(days=150)
+            limit_14d = today + timedelta(days=14)
+
             for _, r in df_merged.iterrows():
+                # パスポート期限チェック
                 try:
                     p_d = datetime.strptime(str(r.get('passport_expiration_date', '')), '%Y-%m-%d').date()
-                    if today <= p_d <= limit: w_alerts.append(
-                        {"氏名": r.get('name_en', ''), "種類": "パスポート", "日付": str(p_d)})
+                    if today <= p_d <= limit_5m: w_alerts.append(
+                        {"氏名": r.get('name_en', ''), "種類": "パスポート(5ヶ月以内)", "日付": str(p_d)})
                 except:
                     pass
+
+                # 在留期限チェック
                 try:
                     v_d = datetime.strptime(str(r.get('visa_expiry', '')), '%Y-%m-%d').date()
-                    if today <= v_d <= limit: w_alerts.append(
-                        {"氏名": r.get('name_en', ''), "種類": "在留期限", "日付": str(v_d)})
+                    if today <= v_d <= limit_5m: w_alerts.append(
+                        {"氏名": r.get('name_en', ''), "種類": "在留期限(5ヶ月以内)", "日付": str(v_d)})
                 except:
                     pass
+
+                # 🌟 【修正】帰国時の書類本人未所持トラブル防止アラート
+                try:
+                    ret_d = datetime.strptime(str(r.get('return_date', '')), '%Y-%m-%d').date()
+                    # 帰国まで14日以内 かつ 帰国日を過ぎていない
+                    if today <= ret_d <= limit_14d:
+                        doc_stat = str(r.get('document_status', ''))
+                        # 本人が所持していない（事務所預かり等のままになっている）場合はエラーアラートを出す
+                        if doc_stat not in ["本人所持", "本人保持"]:
+                            w_alerts.append({"氏名": r.get('name_en', ''), "種類": "🚨帰国間近(書類本人未所持)", "日付": str(ret_d)})
+                except:
+                    pass
+
         if w_alerts:
             st.dataframe(pd.DataFrame(w_alerts), use_container_width=True, hide_index=True)
         else:
@@ -512,8 +530,9 @@ def show_worker_list():
         col_v.markdown(
             f"##### ✈️ 在留情報\n<div style='line-height:1.6; font-size:14px;'><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>パスポート</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>帰国日</b><br>{format_date(w.get('return_date'))}</div>",
             unsafe_allow_html=True)
+        # 🌟 修正：「書類状況」の表示名を「パスポート・在留C保管先」に変更
         col_c.markdown(
-            f"##### 🏢 その他\n<div style='line-height:1.6; font-size:14px;'><b>宿舎住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>書類状況</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
+            f"##### 🏢 その他\n<div style='line-height:1.6; font-size:14px;'><b>宿舎住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>旅券・在留C保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
 
     with tab_log:
@@ -594,8 +613,8 @@ def show_worker_list():
                 nhome = st.text_input("本国居住地", value=format_date(w.get('home_address', '')))
 
                 def safe_date_parse(date_str):
-                    if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー"]:
-                        return datetime.now().date()
+                    if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None",
+                                                                      "ー"]: return datetime.now().date()
                     try:
                         return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
                     except:
@@ -611,9 +630,12 @@ def show_worker_list():
                 nret = st.text_input("帰国日", value=format_date(w.get('return_date', '')))
                 nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
 
-                opts = ["本人保持", "事務所預かり", "更新手続中", "紛失中", ""]
+                # 🌟 修正：「本人保持」から「本人所持」へ。項目名を「パスポート・在留カード保管先」へ
+                opts = ["本人所持", "事務所預かり", "更新手続中", "紛失中", "未確認"]
                 current_doc = w.get('document_status', '')
-                ndoc = st.selectbox("書類状況", opts, index=opts.index(current_doc) if current_doc in opts else 0)
+                if current_doc == "本人保持": current_doc = "本人所持"  # 過去データ吸収用
+                ndoc = st.selectbox("パスポート・在留カード保管先", opts, index=opts.index(current_doc) if current_doc in opts else 0)
+
                 nrem = st.text_area("備考", value=format_date(w.get('remarks', '')))
 
                 if st.form_submit_button("💾 右側の変更をすべて保存"):
@@ -731,7 +753,7 @@ def show_company_details():
 
 
 # ==========================================
-# 📝 画面：ログ一覧（会社名・名前での部分一致検索機能）
+# 📝 画面：ログ一覧
 # ==========================================
 def show_logs_manager():
     st.title("📝 ログ一覧")
@@ -743,7 +765,6 @@ def show_logs_manager():
         if not df_comp_all.empty:
             df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
 
-            # 🌟 修正ポイント: 会社名での部分一致検索
             comp_search = st.text_input("🏢 会社名で検索（部分一致）", placeholder="例：青山", key="log_comp_search")
             if comp_search:
                 df_c = df_c[df_c['company_name'].str.contains(comp_search, case=False, na=False)]
@@ -786,7 +807,6 @@ def show_logs_manager():
             df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
             df_w = pd.merge(df_w, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id', how='left')
 
-            # 🌟 修正ポイント: 人材名簿と同じ会社名・名前での部分一致検索
             lc1, lc2 = st.columns(2)
             with lc1:
                 w_comp_search = st.text_input("🏢 会社名で検索（部分一致）", placeholder="例：青山", key="log_w_comp_search")
@@ -851,9 +871,10 @@ def show_add_new():
                 name = st.text_input("氏名")
                 visa = st.selectbox("資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
                 if st.form_submit_button("登録") and name:
+                    # 🌟 修正：「document_status」の初期値も「本人所持」に
                     db.collection('foreign_workers').add(
                         {"company_id": comp, "name_en": str(name), "visa_status": str(visa), "is_away": 0,
-                         "document_status": "本人保持", "created_at": firestore.SERVER_TIMESTAMP})
+                         "document_status": "本人所持", "created_at": firestore.SERVER_TIMESTAMP})
                     clear_caches();
                     st.success("登録完了");
                     st.rerun()
