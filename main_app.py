@@ -582,14 +582,20 @@ def show_worker_list():
                 st.image(img_val, use_container_width=True)
             else:
                 st.info("📷 未登録")
+
+        # 🌟 修正ポイント：表示漏れだった「出身地」を本人情報に追加
         col_p.markdown(
-            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
+            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
             unsafe_allow_html=True)
+
+        # 🌟 修正ポイント：「パスポート」を「パスポート期限」に名称統一
         col_v.markdown(
-            f"##### ✈️ 在留情報\n<div style='line-height:1.6; font-size:14px;'><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>パスポート</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>帰国日</b><br>{format_date(w.get('return_date'))}</div>",
+            f"##### ✈️ 在留情報\n<div style='line-height:1.6; font-size:14px;'><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>帰国日</b><br>{format_date(w.get('return_date'))}</div>",
             unsafe_allow_html=True)
+
+        # 🌟 修正ポイント：「宿舎住所」を「宿舎・寮住所」に、「旅券・在留C保管先」を「パスポート・在留カード保管先」に名称統一
         col_c.markdown(
-            f"##### 🏢 その他\n<div style='line-height:1.6; font-size:14px;'><b>宿舎住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>旅券・在留C保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
+            f"##### 🏢 その他\n<div style='line-height:1.6; font-size:14px;'><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
 
     with tab_log:
@@ -632,8 +638,6 @@ def show_worker_list():
             st.write("📷 **新しい写真の登録**")
             if "uploader_key" not in st.session_state: st.session_state.uploader_key = str(time.time())
             new_photo = st.file_uploader("写真を選択", type=["jpg", "png", "jpeg"], key=st.session_state.uploader_key)
-
-            # 🌟 修正ポイント：DummyFileに tell と seek を追加してエラーを完全排除
             if new_photo and st.button("🚀 写真を保存", type="primary", key=f"btn_p_save_{selected_id}"):
                 import io
                 img = Image.open(new_photo);
@@ -668,7 +672,7 @@ def show_worker_list():
                 nc = st.selectbox("所属会社（移籍）", df_comp_all['company_name'].tolist(),
                                   index=df_comp_all['company_name'].tolist().index(w['company_name']))
                 ncid = str(df_comp_all[df_comp_all['company_name'] == nc]['id'].values[0])
-                nr = st.text_input("寮住所", value=format_date(w.get('residence_address', '')))
+                nr = st.text_input("宿舎・寮住所", value=format_date(w.get('residence_address', '')))
                 nbirth = st.text_input("生年月日", value=format_date(w.get('birthdate', '')))
                 ngender = st.text_input("性別", value=format_date(w.get('gender', '')))
                 nnat = st.text_input("国籍", value=format_date(w.get('nationality', '')))
@@ -788,11 +792,7 @@ def show_company_details():
 
         c_logs = fetch_where("company_logs", "company_id", "==", c_id)
         if not c_logs.empty:
-            if 'log_category' not in c_logs.columns:
-                c_logs['log_category'] = '一般'
-            else:
-                c_logs['log_category'] = c_logs['log_category'].fillna('一般')
-
+            c_logs['log_category'] = c_logs.get('log_category', '一般').fillna('一般')
             filter_cat = st.radio("表示フィルター", ["すべて"] + log_cats, horizontal=True)
             if filter_cat != "すべて": c_logs = c_logs[c_logs['log_category'] == filter_cat]
 
