@@ -158,7 +158,7 @@ valid_company_ids = df_comp_all[df_comp_all['area'].isin(selected_areas)][
 
 
 # ==========================================
-# 🏠 画面：ダッシュボード
+# 🏠 画面：ダッシュボード（カテゴリ抽出フィルター搭載）
 # ==========================================
 def show_dashboard():
     st.title("🏠 総合ダッシュボード")
@@ -170,9 +170,18 @@ def show_dashboard():
     col1, col2 = st.columns([6, 4])
     with col1:
         st.subheader(f"📋 直近のタスク一覧 ({start_window} ～ {end_window})")
+
+        # 🌟 修正ポイント：タスクの表示フィルターを追加
+        task_filter = st.radio("表示するタスクの種類", ["すべて表示", "帰国手続きのみ", "入管手続きのみ"], horizontal=True)
+        st.write("---")
+
         df_tasks = fetch_all_cached("events_logs")
         df_workers = fetch_all_cached("foreign_workers")
+
         if not df_tasks.empty:
+            # カテゴリ列が存在しない古いデータの保護
+            df_tasks['category'] = df_tasks.get('category', '一般業務').fillna('一般業務')
+
             if not df_workers.empty:
                 df_tasks = pd.merge(df_tasks, df_workers[['id', 'name_en', 'company_id']], left_on='worker_id',
                                     right_on='id', how='left', suffixes=('', '_w'))
@@ -191,10 +200,17 @@ def show_dashboard():
 
             df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
+            # 期間フィルタリング
             if not df_tasks.empty:
                 df_tasks['event_date_obj'] = pd.to_datetime(df_tasks['event_date']).dt.date
                 df_tasks = df_tasks[
                     (df_tasks['event_date_obj'] >= start_window) & (df_tasks['event_date_obj'] <= end_window)]
+
+            # 🌟 カテゴリによる抽出フィルタリング
+            if task_filter == "帰国手続きのみ":
+                df_tasks = df_tasks[df_tasks['category'] == "帰国手続き"]
+            elif task_filter == "入管手続きのみ":
+                df_tasks = df_tasks[df_tasks['category'] == "入管手続き"]
 
             if not df_tasks.empty:
                 for (comp, name), group in df_tasks.sort_values(by='event_date').groupby(['company_name', 'name_en']):
@@ -203,8 +219,17 @@ def show_dashboard():
                         c_date, c_task, c_btn = st.columns([2, 5, 2])
                         is_done = r['status'] == '完了'
                         c_date.write(r['event_date'])
-                        c_task.markdown(
-                            f"{'☑' if is_done else '▢'} {'~~' + r['task_name'] + '~~' if is_done else r['task_name']}")
+
+                        # 🌟 カテゴリバッジを表示（帰国手続きなどは目立たせる）
+                        cat_badge = ""
+                        if r['category'] == "帰国手続き":
+                            cat_badge = "<span style='color:#ff4b4b; font-weight:bold;'>【帰国】</span> "
+                        elif r['category'] == "入管手続き":
+                            cat_badge = "<span style='color:#4bb5ff; font-weight:bold;'>【入管】</span> "
+
+                        task_disp = f"~~{r['task_name']}~~" if is_done else r['task_name']
+                        c_task.markdown(f"{'☑' if is_done else '▢'} {cat_badge}{task_disp}", unsafe_allow_html=True)
+
                         if c_btn.button("☑ 取消" if is_done else "▢ 完了", key=f"dash_{r['id']}"):
                             db.collection('events_logs').document(str(r['id'])).update(
                                 {'status': '未完了' if is_done else '完了'})
@@ -212,7 +237,7 @@ def show_dashboard():
                             st.rerun()
                     st.divider()
             else:
-                st.write("この期間内に関連するタスクはありません。")
+                st.write("該当するタスクはありません。")
         else:
             st.write("タスクデータがありません。")
 
@@ -227,7 +252,6 @@ def show_dashboard():
             limit_14d = today + timedelta(days=14)
 
             for _, r in df_merged.iterrows():
-                # パスポート期限チェック
                 try:
                     p_d = datetime.strptime(str(r.get('passport_expiration_date', '')), '%Y-%m-%d').date()
                     if today <= p_d <= limit_5m: w_alerts.append(
@@ -235,7 +259,6 @@ def show_dashboard():
                 except:
                     pass
 
-                # 在留期限チェック
                 try:
                     v_d = datetime.strptime(str(r.get('visa_expiry', '')), '%Y-%m-%d').date()
                     if today <= v_d <= limit_5m: w_alerts.append(
@@ -243,13 +266,10 @@ def show_dashboard():
                 except:
                     pass
 
-                # 🌟 【修正】帰国時の書類本人未所持トラブル防止アラート
                 try:
                     ret_d = datetime.strptime(str(r.get('return_date', '')), '%Y-%m-%d').date()
-                    # 帰国まで14日以内 かつ 帰国日を過ぎていない
                     if today <= ret_d <= limit_14d:
                         doc_stat = str(r.get('document_status', ''))
-                        # 本人が所持していない（事務所預かり等のままになっている）場合はエラーアラートを出す
                         if doc_stat not in ["本人所持", "本人保持"]:
                             w_alerts.append({"氏名": r.get('name_en', ''), "種類": "🚨帰国間近(書類本人未所持)", "日付": str(ret_d)})
                 except:
@@ -308,6 +328,7 @@ def show_calendar():
         df_tasks['company_id'] = df_tasks.get('company_id_w', df_tasks.get('company_id'))
     df_tasks['name_en'] = df_tasks.get('name_en', pd.Series(dtype=str)).fillna('一般')
     df_tasks['status'] = df_tasks.get('status', '未完了')
+    df_tasks['category'] = df_tasks.get('category', '一般業務').fillna('一般業務')
     if not df_tasks.empty: df_tasks = df_tasks[
         (df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
@@ -344,7 +365,12 @@ def show_calendar():
                             for _, t in df_tasks[df_tasks['event_date'] == d_str].iterrows():
                                 base_class = "task-item task-done" if t['status'] == '完了' else "task-item"
                                 if str(t['worker_id']) == '0': base_class += " task-general"
-                                tasks_html += f"<div class='{base_class}'>{'☑' if t['status'] == '完了' else '▢'} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
+                                # カレンダー内でも帰国や入管カテゴリを目立たせる場合は絵文字を追加
+                                cat_icon = "🛫" if t['category'] == "帰国手続き" else "🏢" if t[
+                                                                                             'category'] == "入管手続き" else "☑" if \
+                                t['status'] == '完了' else "▢"
+                                tasks_html += f"<div class='{base_class}'>{cat_icon} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
+
                         if not df_mileage.empty and 'record_date' in df_mileage.columns:
                             for _, m_row in df_mileage[df_mileage['record_date'] == d_str].iterrows():
                                 tasks_html += f"<div class='task-item task-mileage'>🚗 {m_row.get('driven_km', 0)}km ({str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')})</div>"
@@ -367,7 +393,8 @@ def show_calendar():
             for _, t in df_tasks[df_tasks['event_date'] == target_str].iterrows():
                 has_plan = True
                 is_done = t['status'] == '完了'
-                st.markdown(f"**{'☑' if is_done else '▢'} {str(t['name_en'])[:4]}**: {t['task_name']}")
+                cat_badge = f"【{t['category']}】" if t['category'] != "一般業務" else ""
+                st.markdown(f"**{'☑' if is_done else '▢'} {str(t['name_en'])[:4]}**: {cat_badge}{t['task_name']}")
                 c1, c2 = st.columns(2)
                 if c1.button("完了/取消", key=f"tg_{t['id']}", use_container_width=True):
                     db.collection('events_logs').document(str(t['id'])).update({"status": "未完了" if is_done else "完了"})
@@ -409,14 +436,24 @@ def show_calendar():
 
                     mode = st.radio("追加方法", ["単発", "テンプレート"], horizontal=True, key="add_w_m")
                     if mode == "単発":
+                        # 🌟 修正ポイント：タスク追加時にカテゴリを選択できるようにする
+                        task_cat = st.selectbox("タスクカテゴリ", ["一般業務", "帰国手続き", "入管手続き"], key="add_w_cat")
                         tn = st.text_input("タスク名", key="add_w_t")
                         if st.button("追加", key="btn_add_w"):
-                            db.collection('events_logs').add(
-                                {"worker_id": str(s_w), "task_name": str(tn), "event_date": target_str, "status": "未完了",
-                                 "created_at": firestore.SERVER_TIMESTAMP})
-                            db.collection('worker_logs').add(
-                                {"worker_id": str(s_w), "log_date": target_str, "log_content": f"【タスク登録】{str(tn)}",
-                                 "created_at": firestore.SERVER_TIMESTAMP})
+                            db.collection('events_logs').add({
+                                "worker_id": str(s_w),
+                                "task_name": str(tn),
+                                "category": str(task_cat),  # DBにカテゴリを保存
+                                "event_date": target_str,
+                                "status": "未完了",
+                                "created_at": firestore.SERVER_TIMESTAMP
+                            })
+                            db.collection('worker_logs').add({
+                                "worker_id": str(s_w),
+                                "log_date": target_str,
+                                "log_content": f"【タスク登録/{task_cat}】{str(tn)}",
+                                "created_at": firestore.SERVER_TIMESTAMP
+                            })
                             clear_caches();
                             st.rerun()
                     else:
@@ -429,12 +466,20 @@ def show_calendar():
                                 d_df = fetch_where("template_details", "template_id", "==", tid)
                                 for _, d in d_df.iterrows():
                                     evd = (target_date_obj + timedelta(days=int(d['offset_days']))).strftime("%Y-%m-%d")
-                                    db.collection('events_logs').add(
-                                        {"worker_id": str(s_w), "task_name": str(d['task_name']), "event_date": evd,
-                                         "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
-                                    db.collection('worker_logs').add({"worker_id": str(s_w), "log_date": evd,
-                                                                      "log_content": f"【タスク登録】{str(d['task_name'])}",
-                                                                      "created_at": firestore.SERVER_TIMESTAMP})
+                                    db.collection('events_logs').add({
+                                        "worker_id": str(s_w),
+                                        "task_name": str(d['task_name']),
+                                        "category": "一般業務",  # テンプレートは一律一般業務とする
+                                        "event_date": evd,
+                                        "status": "未完了",
+                                        "created_at": firestore.SERVER_TIMESTAMP
+                                    })
+                                    db.collection('worker_logs').add({
+                                        "worker_id": str(s_w),
+                                        "log_date": evd,
+                                        "log_content": f"【タスク登録】{str(d['task_name'])}",
+                                        "created_at": firestore.SERVER_TIMESTAMP
+                                    })
                                 clear_caches();
                                 st.rerun()
 
@@ -447,9 +492,15 @@ def show_calendar():
                 tn_gen = st.text_input("タスク名", key="add_g_t")
                 if st.button("追加", key="btn_add_g"):
                     t_name = f"[{c_names[c_opts.index(s_c_gen)]}] {str(tn_gen)}" if s_c_gen != '0' else str(tn_gen)
-                    db.collection('events_logs').add(
-                        {"worker_id": "0", "company_id": None if s_c_gen == '0' else str(s_c_gen), "task_name": t_name,
-                         "event_date": target_str, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
+                    db.collection('events_logs').add({
+                        "worker_id": "0",
+                        "company_id": None if s_c_gen == '0' else str(s_c_gen),
+                        "task_name": t_name,
+                        "category": "一般業務",
+                        "event_date": target_str,
+                        "status": "未完了",
+                        "created_at": firestore.SERVER_TIMESTAMP
+                    })
                     if s_c_gen != '0':
                         db.collection('company_logs').add(
                             {"company_id": str(s_c_gen), "log_date": target_str, "log_category": "一般",
@@ -530,7 +581,6 @@ def show_worker_list():
         col_v.markdown(
             f"##### ✈️ 在留情報\n<div style='line-height:1.6; font-size:14px;'><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>パスポート</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>帰国日</b><br>{format_date(w.get('return_date'))}</div>",
             unsafe_allow_html=True)
-        # 🌟 修正：「書類状況」の表示名を「パスポート・在留C保管先」に変更
         col_c.markdown(
             f"##### 🏢 その他\n<div style='line-height:1.6; font-size:14px;'><b>宿舎住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>旅券・在留C保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
@@ -630,10 +680,9 @@ def show_worker_list():
                 nret = st.text_input("帰国日", value=format_date(w.get('return_date', '')))
                 nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
 
-                # 🌟 修正：「本人保持」から「本人所持」へ。項目名を「パスポート・在留カード保管先」へ
                 opts = ["本人所持", "事務所預かり", "更新手続中", "紛失中", "未確認"]
                 current_doc = w.get('document_status', '')
-                if current_doc == "本人保持": current_doc = "本人所持"  # 過去データ吸収用
+                if current_doc == "本人保持": current_doc = "本人所持"
                 ndoc = st.selectbox("パスポート・在留カード保管先", opts, index=opts.index(current_doc) if current_doc in opts else 0)
 
                 nrem = st.text_area("備考", value=format_date(w.get('remarks', '')))
@@ -871,7 +920,6 @@ def show_add_new():
                 name = st.text_input("氏名")
                 visa = st.selectbox("資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
                 if st.form_submit_button("登録") and name:
-                    # 🌟 修正：「document_status」の初期値も「本人所持」に
                     db.collection('foreign_workers').add(
                         {"company_id": comp, "name_en": str(name), "visa_status": str(visa), "is_away": 0,
                          "document_status": "本人所持", "created_at": firestore.SERVER_TIMESTAMP})
