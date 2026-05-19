@@ -8,7 +8,7 @@ import calendar
 from PIL import Image, ImageOps
 
 # ==========================================
-# 🔥 Firebase設定
+# 🔥 Firebase設定（クラウド＆ローカル両対応版）
 # ==========================================
 import firebase_admin
 from firebase_admin import credentials
@@ -42,7 +42,7 @@ def check_password():
         pwd = st.text_input("パスワード", type="password")
         if st.button("ログイン"):
             if pwd == st.secrets["auth"]["password"]:
-                st.session_state["password_correct"] = True;
+                st.session_state["password_correct"] = True
                 st.rerun()
             else:
                 st.error("❌ パスワードが間違っています。")
@@ -53,15 +53,21 @@ check_password()
 
 
 # ==========================================
-# 🚀 爆速化・共通関数
+# 🚀 爆速化・共通関数（int64型エラー徹底完全対策）
 # ==========================================
 @st.cache_data(ttl=300)
 def fetch_all_cached(collection_name):
     docs = db.collection(collection_name).stream()
-    return pd.DataFrame([{"id": str(doc.id), **doc.to_dict()} for doc in docs])  # int64対策でIDを確実にstr化
+    return pd.DataFrame([{"id": str(doc.id), **doc.to_dict()} for doc in docs])
 
 
-def clear_caches(): st.cache_data.clear()
+def clear_caches():
+    st.cache_data.clear()
+
+
+def fetch_all(collection_name):
+    docs = db.collection(collection_name).stream()
+    return pd.DataFrame([{"id": str(doc.id), **doc.to_dict()} for doc in docs])
 
 
 def fetch_where(collection_name, field, op, value):
@@ -69,7 +75,8 @@ def fetch_where(collection_name, field, op, value):
     return pd.DataFrame([{"id": str(doc.id), **doc.to_dict()} for doc in docs])
 
 
-def format_date(d): return "ー" if pd.isna(d) or str(d).strip() in ["None", "", "nan", "1900-01-01"] else str(d)
+def format_date(d):
+    return "ー" if pd.isna(d) or str(d).strip() in ["None", "", "nan", "1900-01-01"] else str(d)
 
 
 # ==========================================
@@ -82,7 +89,7 @@ def upload_image_to_storage(image_file, worker_id, file_name="photo.jpg"):
         blob.upload_from_file(image_file, content_type=image_file.type)
         return blob.generate_signed_url(expiration=timedelta(days=3650), method='GET')
     except Exception as e:
-        st.error(f"エラー: {e}");
+        st.error(f"エラー: {e}")
         return None
 
 
@@ -96,7 +103,7 @@ def manage_files_ui(path_prefix, label="ファイル"):
         with st.spinner("アップロード中..."):
             blob = bucket.blob(f"{path_prefix}/{uploaded_file.name}")
             blob.upload_from_file(uploaded_file, content_type=uploaded_file.type)
-            st.success("アップロード完了！");
+            st.success("アップロード完了！")
             st.rerun()
     st.write("---")
 
@@ -111,7 +118,9 @@ def manage_files_ui(path_prefix, label="ファイル"):
             col_name, col_dl, col_del = st.columns([5, 2, 1])
             col_name.write(f"📄 {fname}")
             col_dl.markdown(f"[📥 ダウンロード]({b.generate_signed_url(expiration=timedelta(hours=1), method='GET')})")
-            if col_del.button("🗑️", key=f"del_{b.name}"): b.delete(); st.rerun()
+            if col_del.button("🗑️", key=f"del_{b.name}"):
+                b.delete()
+                st.rerun()
 
 
 # ==========================================
@@ -131,12 +140,11 @@ current_year = datetime.now().year
 jp_holidays = holidays.Japan(years=[current_year - 1, current_year, current_year + 1, current_year + 2])
 
 # ==========================================
-# 📂 サイドバーと共通フィルター
+# 📂 サイドバーと共通フィルター（ご指定の名称に一新）
 # ==========================================
 st.sidebar.title("📂 管理メニュー")
 page = st.sidebar.radio("画面切り替え", [
-    "🏠 ダッシュボード", "🗓️ カレンダー", "👥 外国人材名簿", "📝 名簿編集",
-    "🏢 会社詳細・ファイル", "📝 ログ", "➕ 名簿へ新規追加", "⚙️ テンプレート設定", "🚗 走行距離入力"
+    "🏠 ダッシュボード", "🗓️ カレンダー", "👥 人材名簿", "🏢 会社情報", "📝 ログ一覧", "➕ 新規登録", "⚙️ テンプレート設定", "🚗 走行距離入力"
 ])
 st.sidebar.divider()
 st.sidebar.subheader("📍 地域フィルター")
@@ -150,15 +158,19 @@ valid_company_ids = df_comp_all[df_comp_all['area'].isin(selected_areas)][
 
 
 # ==========================================
-# 🏠 画面：ダッシュボード
+# 🏠 画面：ダッシュボード（前後30日間の連動仕様へ強化）
 # ==========================================
 def show_dashboard():
     st.title("🏠 総合ダッシュボード")
     today = datetime.now().date()
 
+    # 🌟 修正ポイント1: 今現在の日付から「前後30日間（計60日間）」に期間を厳選
+    start_window = today - timedelta(days=30)
+    end_window = today + timedelta(days=30)
+
     col1, col2 = st.columns([6, 4])
     with col1:
-        st.subheader("📋 タスク一覧")
+        st.subheader(f"📋 直近のタスク一覧 ({start_window} ～ {end_window})")
         df_tasks = fetch_all_cached("events_logs")
         df_workers = fetch_all_cached("foreign_workers")
         if not df_tasks.empty:
@@ -166,7 +178,8 @@ def show_dashboard():
                 df_tasks = pd.merge(df_tasks, df_workers[['id', 'name_en', 'company_id']], left_on='worker_id',
                                     right_on='id', how='left', suffixes=('', '_w'))
             else:
-                df_tasks['name_en'] = '一般'; df_tasks['company_id'] = None
+                df_tasks['name_en'] = '一般'
+                df_tasks['company_id'] = None
             if not df_comp_all.empty:
                 df_tasks = pd.merge(df_tasks, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id',
                                     how='left', suffixes=('', '_c'))
@@ -176,7 +189,15 @@ def show_dashboard():
             df_tasks['name_en'] = df_tasks['name_en'].fillna('共通タスク')
             df_tasks['company_name'] = df_tasks['company_name'].fillna('🏢 【一般業務】')
             df_tasks['status'] = df_tasks.get('status', '未完了')
+
+            # 地域・一般業務フィルター
             df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
+
+            # 🌟 期間フィルタリングを実行
+            if not df_tasks.empty:
+                df_tasks['event_date_obj'] = pd.to_datetime(df_tasks['event_date']).dt.date
+                df_tasks = df_tasks[
+                    (df_tasks['event_date_obj'] >= start_window) & (df_tasks['event_date_obj'] <= end_window)]
 
             if not df_tasks.empty:
                 for (comp, name), group in df_tasks.sort_values(by='event_date').groupby(['company_name', 'name_en']):
@@ -194,10 +215,11 @@ def show_dashboard():
                             st.rerun()
                     st.divider()
             else:
-                st.write("タスクはありません")
+                st.write("この期間内に関連するタスクはありません。")
+        else:
+            st.write("タスクデータがありません。")
 
     with col2:
-        # ★ 追加：人材アラート
         st.subheader("🛂 人材 期限アラート (5ヶ月以内)")
         df_w = fetch_all_cached("foreign_workers")
         w_alerts = []
@@ -225,12 +247,10 @@ def show_dashboard():
 
         st.write("---")
 
-        # ★ 追加：会社アラート（36協定・講習日）
         st.subheader("🏢 会社 期限・注意アラート")
         c_alerts = []
         if not df_comp_all.empty:
             for _, c in df_comp_all[df_comp_all['id'].isin(valid_company_ids)].iterrows():
-                # 36協定: 期限が過ぎていたらアラート
                 a36_str = str(c.get('agreement_36_date', ''))
                 if a36_str and a36_str not in ["nan", "ー", "None", ""]:
                     try:
@@ -239,7 +259,6 @@ def show_dashboard():
                     except:
                         pass
 
-                # 講習日: 6ヶ月前になったらアラート
                 tr_str = str(c.get('training_date', ''))
                 if tr_str and tr_str not in ["nan", "ー", "None", ""]:
                     try:
@@ -256,10 +275,15 @@ def show_dashboard():
 
 
 # ==========================================
-# 🗓️ 画面：カレンダー
+# 🗓️ 画面：カレンダー（「今日に戻る」機能 ＆ 今日のハイライト表示）
 # ==========================================
 def show_calendar():
     st.title("🗓️ カレンダー")
+
+    # 🌟 修正ポイント2: 今日へ戻るためのセッション状態の制御
+    if 'cal_current_date' not in st.session_state:
+        st.session_state.cal_current_date = datetime.now().date()
+
     df_tasks = fetch_all_cached("events_logs")
     df_workers = fetch_all_cached("foreign_workers")
     df_mileage = fetch_all_cached("mileage_logs")
@@ -275,11 +299,16 @@ def show_calendar():
 
     col_cal, col_panel = st.columns([7, 3])
     with col_cal:
-        t_date = st.date_input("月を選択", datetime.now(), key="cal_month_view")
+        # 今日に戻るボタン
+        if st.button("📅 今日に戻る", type="secondary"):
+            st.session_state.cal_current_date = datetime.now().date()
+            st.rerun()
+
+        t_date = st.date_input("月を選択", st.session_state.cal_current_date, key="cal_month_view")
+        st.session_state.cal_current_date = t_date  # 入力された日付を記憶
         y, m = t_date.year, t_date.month
         calendar.setfirstweekday(calendar.SUNDAY)
 
-        # ★修正1：階段現象の解消（ループの「外」で1回だけ枠を作る）
         week_cols = st.columns(7)
         for i, d in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
             week_cols[i].write(f"**{d}**")
@@ -291,8 +320,13 @@ def show_calendar():
                     if day != 0:
                         d_date = datetime(y, m, day).date()
                         d_str = d_date.strftime("%Y-%m-%d")
+
+                        # 🌟 修正ポイント3: 今日(今日の日付)なら特別ハイライトの枠線と背景を施す
+                        is_today = (d_date == datetime.now().date())
+                        bg_style = "background-color: #1c3322; border: 2px solid #2ea44f;" if is_today else ""
+
                         color = '#ff8a8a' if jp_holidays.get(d_date) or i == 0 else '#8ab4ff' if i == 6 else '#ffffff'
-                        html = f"<div class='cal-day-header' style='color:{color};'>{day}</div>"
+                        html = f"<div class='cal-day-header' style='color:{color};'>{'📍 今日 ' if is_today else ''}{day}</div>"
 
                         tasks_html = ""
                         if not df_tasks.empty:
@@ -303,7 +337,9 @@ def show_calendar():
                         if not df_mileage.empty and 'record_date' in df_mileage.columns:
                             for _, m_row in df_mileage[df_mileage['record_date'] == d_str].iterrows():
                                 tasks_html += f"<div class='task-item task-mileage'>🚗 {m_row.get('driven_km', 0)}km ({str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')})</div>"
-                        st.markdown(f'<div class="cal-cell">{html}{tasks_html}</div>', unsafe_allow_html=True)
+
+                        st.markdown(f'<div class="cal-cell" style="{bg_style}">{html}{tasks_html}</div>',
+                                    unsafe_allow_html=True)
                     else:
                         st.markdown('<div class="cal-cell" style="background-color:#1e1e1e; border:none;"></div>',
                                     unsafe_allow_html=True)
@@ -337,16 +373,15 @@ def show_calendar():
                 has_plan = True
                 st.markdown(
                     f"**🚗 走行**: {m_row.get('driven_km', 0)}km ({str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')})")
-                if st.button("🗑️ 削除", key=f"del_m_{m_row['id']}"):
-                    db.collection('mileage_logs').document(m_row['id']).delete()
-                    clear_caches()
+                if st.button("🗑️ 削除", key=f"del_m_{m_row['id']}", use_container_width=True):
+                    db.collection('mileage_logs').document(str(m_row['id'])).delete()
+                    clear_caches();
                     st.rerun()
                 st.write("---")
 
         if not has_plan: st.caption("予定はありません")
         st.divider()
 
-        # ★修正2：消してしまっていた追加UIの完全復元
         st.markdown("**➕ 新規追加**")
         with st.expander("👤 外国人材タスクを追加"):
             df_w = fetch_all_cached("foreign_workers")
@@ -366,12 +401,12 @@ def show_calendar():
                         tn = st.text_input("タスク名", key="add_w_t")
                         if st.button("追加", key="btn_add_w"):
                             db.collection('events_logs').add(
-                                {"worker_id": str(s_w), "task_name": tn, "event_date": target_str, "status": "未完了",
+                                {"worker_id": str(s_w), "task_name": str(tn), "event_date": target_str, "status": "未完了",
                                  "created_at": firestore.SERVER_TIMESTAMP})
                             db.collection('worker_logs').add(
-                                {"worker_id": str(s_w), "log_date": target_str, "log_content": f"【タスク登録】{tn}",
+                                {"worker_id": str(s_w), "log_date": target_str, "log_content": f"【タスク登録】{str(tn)}",
                                  "created_at": firestore.SERVER_TIMESTAMP})
-                            clear_caches()
+                            clear_caches();
                             st.rerun()
                     else:
                         t_df = fetch_all_cached("task_templates")
@@ -384,12 +419,12 @@ def show_calendar():
                                 for _, d in d_df.iterrows():
                                     evd = (target_date_obj + timedelta(days=int(d['offset_days']))).strftime("%Y-%m-%d")
                                     db.collection('events_logs').add(
-                                        {"worker_id": str(s_w), "task_name": d['task_name'], "event_date": evd,
+                                        {"worker_id": str(s_w), "task_name": str(d['task_name']), "event_date": evd,
                                          "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
                                     db.collection('worker_logs').add({"worker_id": str(s_w), "log_date": evd,
-                                                                      "log_content": f"【タスク登録】{d['task_name']}",
+                                                                      "log_content": f"【タスク登録】{str(d['task_name'])}",
                                                                       "created_at": firestore.SERVER_TIMESTAMP})
-                                clear_caches()
+                                clear_caches();
                                 st.rerun()
 
         with st.expander("🏢 一般・会社タスクを追加"):
@@ -400,15 +435,15 @@ def show_calendar():
                 s_c_gen = st.selectbox("対象の会社", c_opts, format_func=lambda x: c_names[c_opts.index(x)], key="add_g_c")
                 tn_gen = st.text_input("タスク名", key="add_g_t")
                 if st.button("追加", key="btn_add_g"):
-                    t_name = f"[{c_names[c_opts.index(s_c_gen)]}] {tn_gen}" if s_c_gen != '0' else tn_gen
+                    t_name = f"[{c_names[c_opts.index(s_c_gen)]}] {str(tn_gen)}" if s_c_gen != '0' else str(tn_gen)
                     db.collection('events_logs').add(
                         {"worker_id": "0", "company_id": None if s_c_gen == '0' else str(s_c_gen), "task_name": t_name,
                          "event_date": target_str, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
                     if s_c_gen != '0':
                         db.collection('company_logs').add(
-                            {"company_id": str(s_c_gen), "log_date": target_str, "log_content": f"【タスク登録】{tn_gen}",
-                             "created_at": firestore.SERVER_TIMESTAMP})
-                    clear_caches()
+                            {"company_id": str(s_c_gen), "log_date": target_str, "log_category": "一般",
+                             "log_content": f"【タスク登録】{str(tn_gen)}", "created_at": firestore.SERVER_TIMESTAMP})
+                    clear_caches();
                     st.rerun()
 
         with st.expander("🚗 走行距離を記録"):
@@ -424,23 +459,23 @@ def show_calendar():
                         except:
                             pass
                     db.collection('mileage_logs').add(
-                        {"record_date": target_str, "driver_name": dr_direct, "start_km": last_end_km,
-                         "end_km": last_end_km + dist, "driven_km": dist})
-                    clear_caches()
+                        {"record_date": target_str, "driver_name": str(dr_direct), "start_km": int(last_end_km),
+                         "end_km": int(last_end_km + dist), "driven_km": int(dist)})
+                    clear_caches();
                     st.rerun()
                 else:
                     st.warning("距離を入力してください")
 
 
 # ==========================================
-# 👥 画面：名簿
+# 👥 画面：人材名簿（名簿編集機能をここに完全統合！）
 # ==========================================
 def show_worker_list():
-    st.title("👥 外国人材名簿")
+    st.title("👥 人材名簿")
     df_w = fetch_all_cached("foreign_workers")
     df_all_logs = fetch_all_cached("worker_logs")
 
-    if df_w.empty or df_comp_all.empty: st.info("データなし"); return
+    if df_w.empty or df_comp_all.empty: st.info("データがありません"); return
 
     df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
     df = pd.merge(df_w, df_comp_all[['id', 'company_name', 'address']], left_on='company_id', right_on='id',
@@ -467,7 +502,9 @@ def show_worker_list():
     w = df[df['id'] == selected_id].iloc[0]
 
     st.markdown(f"## 👤 {w['name_en']} さんの詳細データ")
-    tab_info, tab_log, tab_files = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理"])
+
+    # 🌟 修正ポイント4: タブの中に情報編集機能を直接埋め込み、2画面往復の手間を排除
+    tab_info, tab_log, tab_files, tab_edit = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理", "✏️ 登録情報の編集"])
 
     with tab_info:
         col_img, col_p, col_v, col_c = st.columns(4)
@@ -496,28 +533,119 @@ def show_worker_list():
             l_text = c_t.text_input("ログ内容")
             if st.form_submit_button("＋ 追加"):
                 db.collection('worker_logs').add(
-                    {"worker_id": selected_id, "log_date": l_date.strftime("%Y-%m-%d"), "log_content": l_text,
+                    {"worker_id": selected_id, "log_date": l_date.strftime("%Y-%m-%d"), "log_content": str(l_text),
                      "created_at": firestore.SERVER_TIMESTAMP})
                 clear_caches();
                 st.rerun()
-        for _, l in log_df.iterrows(): st.markdown(f"**{l['log_date']}**： {l.get('log_content', '')}"); st.divider()
+
+        # 個人ログの一覧表示と「編集・削除」機能の実装
+        for _, l in log_df.iterrows():
+            with st.expander(f"📅 {l['log_date']} ： {l.get('log_content', '')}"):
+                with st.form(f"edit_w_log_{l['id']}"):
+                    edit_txt = st.text_input("内容の編集", value=l.get('log_content', ''))
+                    ec1, ec2 = st.columns(2)
+                    if ec1.form_submit_button("💾 変更を保存", use_container_width=True):
+                        db.collection('worker_logs').document(l['id']).update({"log_content": str(edit_txt)})
+                        clear_caches();
+                        st.success("保存しました！");
+                        st.rerun()
+                    if ec2.form_submit_button("🗑️ ログを削除", use_container_width=True):
+                        db.collection('worker_logs').document(l['id']).delete()
+                        clear_caches();
+                        st.warning("削除しました");
+                        st.rerun()
 
     with tab_files:
         manage_files_ui(f"workers/{selected_id}/files", label=f"{w['name_en']} さんの書類")
 
+    with tab_edit:
+        # 統合された編集フォーム
+        st.subheader(f"👤 {w['name_en']} さんの文字情報・写真修正")
+        col_edit_img, col_edit_form = st.columns([1, 3])
+        with col_edit_img:
+            st.write("📷 **新しい写真の登録**")
+            if "uploader_key" not in st.session_state: st.session_state.uploader_key = str(time.time())
+            new_photo = st.file_uploader("写真を選択", type=["jpg", "png", "jpeg"], key=st.session_state.uploader_key)
+            if new_photo and st.button("🚀 写真を保存", type="primary", key=f"btn_p_save_{selected_id}"):
+                import io
+                img = Image.open(new_photo);
+                img = ImageOps.exif_transpose(img)
+                img_cropped = ImageOps.fit(img, (600, 800), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+                if img_cropped.mode in ("RGBA", "P"): img_cropped = img_cropped.convert("RGB")
+                img_byte_arr = io.BytesIO();
+                img_cropped.save(img_byte_arr, format='JPEG', quality=85);
+                img_byte_arr.seek(0)
+
+                class DummyFile:
+                    def __init__(self, f): self.f = f; self.type = "image/jpeg"
+
+                    def read(self, *args): return self.f.read(*args)
+
+                with st.spinner('送信中...'):
+                    url = upload_image_to_storage(DummyFile(img_byte_arr), selected_id)
+                    if url:
+                        db.collection('foreign_workers').document(selected_id).update({"photo_path": url})
+                        clear_caches();
+                        st.success("写真を更新しました！");
+                        time.sleep(1);
+                        st.session_state.uploader_key = str(time.time());
+                        st.rerun()
+
+        with col_edit_form:
+            with st.form(f"edit_worker_info_form_{selected_id}"):
+                nc = st.selectbox("所属会社（移籍）", df_comp_all['company_name'].tolist(),
+                                  index=df_comp_all['company_name'].tolist().index(w['company_name']))
+                ncid = str(df_comp_all[df_comp_all['company_name'] == nc]['id'].values[0])
+                nr = st.text_input("寮住所", value=format_date(w.get('residence_address', '')))
+                nbirth = st.text_input("生年月日", value=format_date(w.get('birthdate', '')))
+                ngender = st.text_input("性別", value=format_date(w.get('gender', '')))
+                nnat = st.text_input("国籍", value=format_date(w.get('nationality', '')))
+                nbirthp = st.text_input("出身地", value=format_date(w.get('birthplace', '')))
+                nhome = st.text_input("本国居住地", value=format_date(w.get('home_address', '')))
+
+                def pd_dt(s): return datetime.strptime(str(s), '%Y-%m-%d') if pd.notna(s) and str(s) not in ["ー", "nan",
+                                                                                                             "None",
+                                                                                                             ""] else datetime.now()
+
+                nv = st.date_input("在留期限", pd_dt(w.get('visa_expiry', '')))
+                np_exp = st.date_input("パスポート期限", pd_dt(w.get('passport_expiration_date', '')))
+
+                nentry = st.text_input("入国日", value=format_date(w.get('entry_date', '')))
+                nret = st.text_input("帰国日", value=format_date(w.get('return_date', '')))
+                nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
+
+                opts = ["本人保持", "事務所預かり", "更新手続中", "紛失中", ""]
+                current_doc = w.get('document_status', '')
+                ndoc = st.selectbox("書類状況", opts, index=opts.index(current_doc) if current_doc in opts else 0)
+                nrem = st.text_area("備考", value=format_date(w.get('remarks', '')))
+
+                if st.form_submit_button("💾 右側の変更をすべて保存"):
+                    db.collection('foreign_workers').document(selected_id).update({
+                        "company_id": ncid, "residence_address": str(nr), "birthdate": str(nbirth),
+                        "gender": str(ngender),
+                        "nationality": str(nnat), "birthplace": str(nbirthp), "home_address": str(nhome),
+                        "visa_expiry": nv.strftime('%Y-%m-%d'),
+                        "passport_expiration_date": np_exp.strftime('%Y-%m-%d'), "entry_date": str(nentry),
+                        "return_date": str(nret),
+                        "dispatch_agency": str(nagency), "document_status": str(ndoc), "remarks": str(nrem)
+                    })
+                    clear_caches();
+                    st.success("名簿情報を更新しました！");
+                    st.rerun()
+
 
 # ==========================================
-# 🏢 ★新機能：会社詳細・ファイル（専用項目・カテゴリ別ログ）
+# 🏢 画面：会社情報（名称変更 ＆ ログ完全編集対応）
 # ==========================================
 def show_company_details():
-    st.title("🏢 会社詳細・ファイル")
+    st.title("🏢 会社情報")
     if df_comp_all.empty: st.warning("会社が登録されていません。"); return
 
     df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
     c_name = st.selectbox("対象の会社を選択してください", df_c['company_name'].tolist())
 
     c_data = df_c[df_c['company_name'] == c_name].iloc[0]
-    c_id = str(c_data['id'])  # int64対策で文字列化
+    c_id = str(c_data['id'])
 
     tab_info, tab_log, tab_file = st.tabs(["📋 基本情報・設定", "📝 カテゴリ別ログ", "📁 共有フォルダ"])
 
@@ -533,7 +661,6 @@ def show_company_details():
             with c1:
                 a36 = st.date_input("36協定 期限日（過ぎるとアラート）", pd_dt(c_data.get('agreement_36_date')))
                 tr_d = st.date_input("講習日（6ヶ月前からアラート）", pd_dt(c_data.get('training_date')))
-
                 wp_opts = ["未確認", "◯", "✖"]
                 wp_val = str(c_data.get('workplace_confirmed', '未確認'))
                 wp = st.selectbox("実習場所確認", wp_opts, index=wp_opts.index(wp_val) if wp_val in wp_opts else 0)
@@ -543,7 +670,6 @@ def show_company_details():
                 v_hours = st.text_area("変形労働 備考", value=format_date(c_data.get('variable_working_hours_remarks', '')))
 
             if st.form_submit_button("💾 会社情報を保存"):
-                # SQLite等へのエクスポートも考慮し、Python標準型（str）に変換してFirestoreへ送信
                 db.collection('companies').document(c_id).update({
                     "agreement_36_date": a36.strftime('%Y-%m-%d'),
                     "training_date": tr_d.strftime('%Y-%m-%d'),
@@ -563,7 +689,7 @@ def show_company_details():
             lc1, lc2, lc3 = st.columns([2, 2, 5])
             l_date = lc1.date_input("日付", datetime.now())
             l_cat = lc2.selectbox("カテゴリ", log_cats)
-            l_text = lc3.text_input("記録内容（例：○○氏を指導員として追加など）")
+            l_text = lc3.text_input("記録内容")
             if st.form_submit_button("＋ ログ追加"):
                 db.collection('company_logs').add({
                     "company_id": c_id, "log_date": l_date.strftime('%Y-%m-%d'),
@@ -576,99 +702,130 @@ def show_company_details():
         c_logs = fetch_where("company_logs", "company_id", "==", c_id)
         if not c_logs.empty:
             c_logs['log_category'] = c_logs.get('log_category', '一般').fillna('一般')
-
-            # カテゴリで絞り込み表示もできるようにする
             filter_cat = st.radio("表示フィルター", ["すべて"] + log_cats, horizontal=True)
             if filter_cat != "すべて": c_logs = c_logs[c_logs['log_category'] == filter_cat]
 
+            # 🌟 修正ポイント5: 会社ログの一覧でも編集・削除を行えるようにアップグレード
             for _, l in c_logs.sort_values(by="log_date", ascending=False).iterrows():
-                badge = f"【{l['log_category']}】"
-                st.markdown(
-                    f"**{l['log_date']}** <span style='color:#ffaa00;'>{badge}</span> {l.get('log_content', '')}",
-                    unsafe_allow_html=True)
-                st.divider()
+                with st.expander(f"📅 {l['log_date']} 【{l['log_category']}】 ： {l.get('log_content', '')}"):
+                    with st.form(f"edit_c_log_form_{l['id']}"):
+                        e_txt = st.text_input("ログ内容変更", value=l.get('log_content', ''))
+                        e_cat = st.selectbox("カテゴリ変更", log_cats, index=log_cats.index(l['log_category']))
+                        eb1, eb2 = st.columns(2)
+                        if eb1.form_submit_button("💾 修正内容を保存", use_container_width=True):
+                            db.collection('company_logs').document(l['id']).update(
+                                {"log_content": str(e_txt), "log_category": str(e_cat)})
+                            clear_caches();
+                            st.success("保存完了");
+                            st.rerun()
+                        if eb2.form_submit_button("🗑️ 削除する", use_container_width=True):
+                            db.collection('company_logs').document(l['id']).delete()
+                            clear_caches();
+                            st.warning("削除完了");
+                            st.rerun()
 
     with tab_file:
         manage_files_ui(f"companies/{c_id}/shared", label=f"{c_name} 共有")
 
 
 # ==========================================
-# 📝 画面：ログ全般（省略化）
+# 📝 画面：ログ一覧（名称変更 ＆ リアルタイム検索機能 ＆ 編集・削除の実装）
 # ==========================================
 def show_logs_manager():
-    st.title("📝 ログ一覧（全社・全体）")
-    st.info("※会社ごとの詳細ログ入力は「🏢 会社詳細・ファイル」から行えます。")
-    # 既存コード省略（動作軽量化のため。必要に応じ復元可）
+    st.title("📝 ログ一覧")
+
+    # 🌟 修正ポイント6: ログを探し出すための「キーワード検索機能」を新設
+    search_keyword = st.text_input("🔍 ログの内容からキーワード検索（部分一致）", placeholder="例: トラブル、会議、検診など")
+
+    t1, t2 = st.tabs(["🏢 会社関連のログ", "👤 人材（個人）のログ"])
+    log_cats = ["一般", "有給消化", "指導員", "特別教育", "健康診断", "その他軽微変更", "年末調整", "最賃確認", "キャリアアップ"]
+
+    with t1:
+        if not df_comp_all.empty:
+            df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
+            s_c = st.selectbox("会社を選択", df_c['id'].tolist(),
+                               format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0],
+                               key="log_mgr_c_select")
+            c_logs = fetch_where("company_logs", "company_id", "==", str(s_c))
+
+            if not c_logs.empty:
+                if search_keyword:
+                    c_logs = c_logs[c_logs['log_content'].str.contains(search_keyword, case=False, na=False)]
+
+                if not c_logs.empty:
+                    for _, l in c_logs.sort_values(by="log_date", ascending=False).iterrows():
+                        with st.expander(
+                                f"📅 {l['log_date']} 【{l.get('log_category', '一般')}】 : {l.get('log_content', '')}"):
+                            with st.form(f"mgr_edit_c_log_{l['id']}"):
+                                t_input = st.text_input("ログ内容変更", value=l.get('log_content', ''))
+                                cat_input = st.selectbox("カテゴリ変更", log_cats,
+                                                         index=log_cats.index(l.get('log_category', '一般')) if l.get(
+                                                             'log_category', '一般') in log_cats else 0)
+                                b1, b2 = st.columns(2)
+                                if b1.form_submit_button("💾 保存", use_container_width=True):
+                                    db.collection('company_logs').document(l['id']).update(
+                                        {"log_content": str(t_input), "log_category": str(cat_input)})
+                                    clear_caches();
+                                    st.rerun()
+                                if b2.form_submit_button("🗑️ 削除", use_container_width=True):
+                                    db.collection('company_logs').document(l['id']).delete()
+                                    clear_caches();
+                                    st.rerun()
+                else:
+                    st.write("該当するログはありません。")
+            else:
+                st.write("記録なし")
+
+    with t2:
+        df_w = fetch_all_cached("foreign_workers")
+        if not df_w.empty and not df_comp_all.empty:
+            df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
+            df_w = pd.merge(df_w, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id', how='left')
+            if not df_w.empty:
+                s_w = st.selectbox("対象者を選択", df_w['id_x'].tolist(), format_func=lambda
+                    x: f"[{df_w[df_w['id_x'] == x]['company_name'].values[0]}] {df_w[df_w['id_x'] == x]['name_en'].values[0]}")
+                w_logs = fetch_where("worker_logs", "worker_id", "==", str(s_w))
+
+                if not w_logs.empty:
+                    if search_keyword:
+                        w_logs = w_logs[w_logs['log_content'].str.contains(search_keyword, case=False, na=False)]
+
+                    if not w_logs.empty:
+                        for _, l in w_logs.sort_values(by="log_date", ascending=False).iterrows():
+                            with st.expander(f"📅 {l['log_date']} : {l.get('log_content', '')}"):
+                                with st.form(f"mgr_edit_w_log_{l['id']}"):
+                                    t_w_input = st.text_input("ログ内容変更", value=l.get('log_content', ''))
+                                    wb1, wb2 = st.columns(2)
+                                    if wb1.form_submit_button("💾 保存", use_container_width=True):
+                                        db.collection('worker_logs').document(l['id']).update(
+                                            {"log_content": str(t_w_input)})
+                                        clear_caches();
+                                        st.rerun()
+                                    if wb2.form_submit_button("🗑️ 削除", use_container_width=True):
+                                        db.collection('worker_logs').document(l['id']).delete()
+                                        clear_caches();
+                                        st.rerun()
+                    else:
+                        st.write("該当するログはありません。")
+                else:
+                    st.write("記録なし")
 
 
-def show_data_editor():
-    st.title("📝 名簿編集")
-    if df_comp_all.empty: return
-    df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
-    c1, c2 = st.columns(2)
-    sc = c1.selectbox("1. 現在の会社", df_c['company_name'].tolist())
-    scid = str(df_c[df_c['company_name'] == sc]['id'].values[0])
-    df_w = fetch_where("foreign_workers", "company_id", "==", scid)
-    if df_w.empty: c2.error("人材なし"); return
-    sw = c2.selectbox("2. 対象者", df_w['name_en'].tolist())
-    w = df_w[df_w['name_en'] == sw].iloc[0]
-    target_id = str(w['id'])
-
-    # 画像とフォーム部分（変更なしなので省略表記せず実装）
-    col_img, col_form = st.columns([1, 3])
-    with col_img:
-        st.write("📷 **写真のアップロード**")
-        if "uploader_key" not in st.session_state: st.session_state.uploader_key = str(time.time())
-        new_photo = st.file_uploader("新しい写真を選択", type=["jpg", "png", "jpeg"], key=st.session_state.uploader_key)
-        if new_photo and st.button("🚀 保存", type="primary"):
-            import io;
-            img = Image.open(new_photo);
-            img = ImageOps.exif_transpose(img)
-            img_cropped = ImageOps.fit(img, (600, 800), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
-            if img_cropped.mode in ("RGBA", "P"): img_cropped = img_cropped.convert("RGB")
-            img_byte_arr = io.BytesIO();
-            img_cropped.save(img_byte_arr, format='JPEG', quality=85);
-            img_byte_arr.seek(0)
-
-            class DummyFile:
-                def __init__(self, f): self.f = f; self.type = "image/jpeg"
-
-                def read(self, *args): return self.f.read(*args)
-
-            with st.spinner('送信中...'):
-                url = upload_image_to_storage(DummyFile(img_byte_arr), target_id)
-                if url: db.collection('foreign_workers').document(target_id).update(
-                    {"photo_path": url}); clear_caches(); st.rerun()
-
-    with col_form:
-        with st.form("e"):
-            ncid = str(df_comp_all[
-                           df_comp_all['company_name'] == st.selectbox("所属", df_comp_all['company_name'].tolist(),
-                                                                       index=df_comp_all['company_name'].tolist().index(
-                                                                           sc))]['id'].values[0])
-            nr = st.text_input("寮住所", value=format_date(w.get('residence_address', '')))
-            nbirth = st.text_input("生年月日", value=format_date(w.get('birthdate', '')))
-            if st.form_submit_button("💾 保存"):
-                db.collection('foreign_workers').document(target_id).update({
-                    "company_id": ncid, "residence_address": str(nr), "birthdate": str(nbirth)
-                    # 省略：他の項目も同様に str() で囲むとより安全です
-                })
-                clear_caches();
-                st.success("更新完了！");
-                st.rerun()
-
-
+# ==========================================
+# ➕ 画面：新規登録（名称変更）
+# ==========================================
 def show_add_new():
-    st.title("➕ 名簿へ新規追加")
+    st.title("➕ 新規登録")
     t1, t2 = st.tabs(["🏢 会社の新規登録", "👤 外国人材の新規登録"])
     with t1:
         with st.form("c"):
-            cn = st.text_input("会社名");
+            cn = st.text_input("会社名")
             ca = st.selectbox("地域", ["近畿", "関東", "東海", "静岡", "九州", "中四国", "北信越", "北海道・東北"])
             if st.form_submit_button("登録") and cn:
                 db.collection('companies').add(
-                    {"company_name": str(cn), "area": str(ca), "created_at": firestore.SERVER_TIMESTAMP});
+                    {"company_name": str(cn), "area": str(ca), "created_at": firestore.SERVER_TIMESTAMP})
                 clear_caches();
+                st.success("登録完了");
                 st.rerun()
     with t2:
         if not df_comp_all.empty:
@@ -676,90 +833,63 @@ def show_add_new():
             with st.form("w"):
                 comp = str(st.selectbox("所属", df_c['id'].tolist(),
                                         format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0]))
-                name = st.text_input("氏名");
+                name = st.text_input("氏名")
                 visa = st.selectbox("資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
                 if st.form_submit_button("登録") and name:
                     db.collection('foreign_workers').add(
                         {"company_id": comp, "name_en": str(name), "visa_status": str(visa), "is_away": 0,
                          "document_status": "本人保持", "created_at": firestore.SERVER_TIMESTAMP})
                     clear_caches();
+                    st.success("登録完了");
                     st.rerun()
 
 
 # ==========================================
-# 📝 画面：ログ全般（復元）
-# ==========================================
-def show_logs_manager():
-    st.title("📝 ログ一覧（全社・全体）")
-    st.info("※会社ごとの詳細ログ入力は「🏢 会社詳細・ファイル」から行えます。")
-    t1, t2 = st.tabs(["🏢 会社ログ", "👤 個人ログ"])
-    with t1:
-        if not df_comp_all.empty:
-            df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
-            s_c = st.selectbox("会社を選択", df_c['id'].tolist(), format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0])
-            with st.form("comp_log"):
-                l_d = st.date_input("日付", datetime.now())
-                l_t = st.text_input("記録内容")
-                if st.form_submit_button("会社ログを追加"):
-                    db.collection('company_logs').add({"company_id": str(s_c), "log_date": l_d.strftime("%Y-%m-%d"), "log_content": l_t, "created_at": firestore.SERVER_TIMESTAMP})
-                    clear_caches(); st.success("追加しました！"); st.rerun()
-            c_logs = fetch_where("company_logs", "company_id", "==", str(s_c))
-            if not c_logs.empty:
-                for _, l in c_logs.sort_values(by="log_date", ascending=False).iterrows():
-                    st.markdown(f"**{l['log_date']}**： {l.get('log_content', '')}")
-                    st.divider()
-    with t2:
-        df_w = fetch_all_cached("foreign_workers")
-        if not df_w.empty and not df_comp_all.empty:
-            df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
-            df_w = pd.merge(df_w, df_comp_all[['id', 'company_name']], left_on='company_id', right_on='id', how='left')
-            if not df_w.empty:
-                s_w = st.selectbox("対象者を選択", df_w['id_x'].tolist(), format_func=lambda x: f"[{df_w[df_w['id_x'] == x]['company_name'].values[0]}] {df_w[df_w['id_x'] == x]['name_en'].values[0]}")
-                w_logs = fetch_where("worker_logs", "worker_id", "==", str(s_w))
-                if not w_logs.empty:
-                    for _, l in w_logs.sort_values(by="log_date", ascending=False).iterrows():
-                        st.markdown(f"**{l['log_date']}**： {l.get('log_content', '')}")
-                        st.divider()
-
-# ==========================================
-# ⚙️ 画面：テンプレート設定（復元）
+# ⚙️ 画面：テンプレート設定
 # ==========================================
 def show_tpl_set():
     st.title("⚙️ テンプレート設定")
     with st.form("t"):
         tn = st.text_input("新規テンプレート名")
         if st.form_submit_button("作成"):
-            db.collection('task_templates').add({"template_name": tn, "created_at": firestore.SERVER_TIMESTAMP})
-            clear_caches()
+            db.collection('task_templates').add({"template_name": str(tn), "created_at": firestore.SERVER_TIMESTAMP})
+            clear_caches();
             st.rerun()
+
     df_t = fetch_all_cached("task_templates")
     if not df_t.empty:
-        stn = st.selectbox("編集するテンプレート", df_t['id'].tolist(), format_func=lambda x: df_t[df_t['id'] == x]['template_name'].values[0])
-        if st.button("🗑️ 削除"):
+        stn = st.selectbox("編集するテンプレート", df_t['id'].tolist(),
+                           format_func=lambda x: df_t[df_t['id'] == x]['template_name'].values[0])
+        if st.button("🗑️ テンプレートを削除"):
             db.collection('task_templates').document(stn).delete()
             for d_id in fetch_where("template_details", "template_id", "==", stn)['id']:
                 db.collection('template_details').document(d_id).delete()
-            clear_caches()
+            clear_caches();
             st.rerun()
+        st.divider()
+
         df_d = fetch_where("template_details", "template_id", "==", stn)
         if not df_d.empty:
             df_d['offset_days'] = pd.to_numeric(df_d['offset_days'])
             st.table(df_d.sort_values(by="offset_days")[['task_name', 'offset_days']])
-            del_id = st.selectbox("削除する詳細", df_d['id'].tolist(), format_func=lambda x: df_d[df_d['id'] == x]['task_name'].values[0])
+            del_id = st.selectbox("削除する詳細", df_d['id'].tolist(),
+                                  format_func=lambda x: df_d[df_d['id'] == x]['task_name'].values[0])
             if st.button("❌ 削除"):
                 db.collection('template_details').document(del_id).delete()
-                clear_caches()
+                clear_caches();
                 st.rerun()
         with st.form("ad"):
             dn = st.text_input("タスク内容")
             do = st.number_input("日数", value=0)
             if st.form_submit_button("追加"):
-                db.collection('template_details').add({"template_id": stn, "task_name": dn, "offset_days": do})
-                clear_caches()
+                db.collection('template_details').add(
+                    {"template_id": stn, "task_name": str(dn), "offset_days": int(do)})
+                clear_caches();
                 st.rerun()
 
+
 # ==========================================
-# 🚗 画面：走行距離入力（復元）
+# 🚗 画面：走行距離入力
 # ==========================================
 def show_mileage():
     st.title("🚗 走行距離入力")
@@ -790,12 +920,14 @@ def show_mileage():
                 if driven < 0:
                     st.error("エラー")
                 else:
-                    db.collection('mileage_logs').add({"record_date": d_meter.strftime("%Y-%m-%d"), "driver_name": dr_meter, "start_km": s_meter, "end_km": e_meter, "driven_km": driven})
-                    st.session_state.m_start = e_meter
+                    db.collection('mileage_logs').add(
+                        {"record_date": d_meter.strftime("%Y-%m-%d"), "driver_name": str(dr_meter),
+                         "start_km": int(s_meter), "end_km": int(e_meter), "driven_km": int(driven)})
+                    st.session_state.m_start = e_meter;
                     st.session_state.m_end = e_meter
-                    clear_caches()
-                    st.success("保存！")
-                    time.sleep(1)
+                    clear_caches();
+                    st.success("保存！");
+                    time.sleep(1);
                     st.rerun()
     with t2:
         with st.container():
@@ -805,32 +937,34 @@ def show_mileage():
             if st.button("💾 記録", type="primary"):
                 if dist > 0:
                     new_end = last_end_km + dist
-                    db.collection('mileage_logs').add({"record_date": d_direct.strftime("%Y-%m-%d"), "driver_name": dr_direct, "start_km": last_end_km, "end_km": new_end, "driven_km": dist})
-                    st.session_state.m_start = new_end
+                    db.collection('mileage_logs').add(
+                        {"record_date": d_direct.strftime("%Y-%m-%d"), "driver_name": str(dr_direct),
+                         "start_km": int(last_end_km), "end_km": int(new_end), "driven_km": int(dist)})
+                    st.session_state.m_start = new_end;
                     st.session_state.m_end = new_end
-                    clear_caches()
-                    st.success("保存！")
-                    time.sleep(1)
+                    clear_caches();
+                    st.success("保存！");
+                    time.sleep(1);
                     st.rerun()
 
+
 # ==========================================
-# 🔄 画面ルーティング
+# 🔄 画面ルーティング（新しい名称に対応）
 # ==========================================
 if page == "🏠 ダッシュボード":
     show_dashboard()
 elif page == "🗓️ カレンダー":
     show_calendar()
-elif page == "👥 外国人材名簿":
+elif page == "👥 人材名簿":
     show_worker_list()
-elif page == "📝 名簿編集":
-    show_data_editor()
-elif page == "🏢 会社詳細・ファイル":
+elif page == "🏢 会社情報":
     show_company_details()
-elif page == "📝 ログ":
+elif page == "📝 ログ一覧":
     show_logs_manager()
-elif page == "➕ 名簿へ新規追加":
+elif page == "➕ 新規登録":
     show_add_new()
 elif page == "⚙️ テンプレート設定":
     show_tpl_set()
 elif page == "🚗 走行距離入力":
     show_mileage()
+    
