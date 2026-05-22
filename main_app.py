@@ -582,18 +582,12 @@ def show_worker_list():
                 st.image(img_val, use_container_width=True)
             else:
                 st.info("📷 未登録")
-
-        # 🌟 修正ポイント：表示漏れだった「出身地」を本人情報に追加
         col_p.markdown(
             f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
             unsafe_allow_html=True)
-
-        # 🌟 修正ポイント：「パスポート」を「パスポート期限」に名称統一
         col_v.markdown(
             f"##### ✈️ 在留情報\n<div style='line-height:1.6; font-size:14px;'><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>帰国日</b><br>{format_date(w.get('return_date'))}</div>",
             unsafe_allow_html=True)
-
-        # 🌟 修正ポイント：「宿舎住所」を「宿舎・寮住所」に、「旅券・在留C保管先」を「パスポート・在留カード保管先」に名称統一
         col_c.markdown(
             f"##### 🏢 その他\n<div style='line-height:1.6; font-size:14px;'><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
@@ -638,6 +632,7 @@ def show_worker_list():
             st.write("📷 **新しい写真の登録**")
             if "uploader_key" not in st.session_state: st.session_state.uploader_key = str(time.time())
             new_photo = st.file_uploader("写真を選択", type=["jpg", "png", "jpeg"], key=st.session_state.uploader_key)
+
             if new_photo and st.button("🚀 写真を保存", type="primary", key=f"btn_p_save_{selected_id}"):
                 import io
                 img = Image.open(new_photo);
@@ -679,6 +674,7 @@ def show_worker_list():
                 nbirthp = st.text_input("出身地", value=format_date(w.get('birthplace', '')))
                 nhome = st.text_input("本国居住地", value=format_date(w.get('home_address', '')))
 
+                # 重複していた関数定義箇所を完全にクリーンアップ
                 def safe_date_parse(date_str):
                     if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None",
                                                                       "ー"]: return datetime.now().date()
@@ -720,13 +716,23 @@ def show_worker_list():
 
 
 # ==========================================
-# 🏢 画面：会社情報
+# 🏢 画面：会社情報（部分一致検索 ＆ 会社住所の編集に対応！）
 # ==========================================
 def show_company_details():
     st.title("🏢 会社情報")
     if df_comp_all.empty: st.warning("会社が登録されていません。"); return
 
     df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
+
+    # 🌟 修正ポイント1: 会社名での部分一致検索欄を追加
+    comp_search = st.text_input("🔍 会社名で検索（部分一致）", placeholder="例：青山", key="comp_details_page_search")
+    if comp_search:
+        df_c = df_c[df_c['company_name'].str.contains(comp_search, case=False, na=False)]
+
+    if df_c.empty:
+        st.warning("該当する会社がありません。検索条件を変えてみてください。")
+        return
+
     c_name = st.selectbox("対象の会社を選択してください", df_c['company_name'].tolist())
 
     c_data = df_c[df_c['company_name'] == c_name].iloc[0]
@@ -736,7 +742,7 @@ def show_company_details():
 
     with tab_info:
         with st.form("comp_edit_form"):
-            st.markdown("##### ⚙️ 各種設定・期限")
+            st.markdown("##### ⚙️ 各種設定・設定情報")
             c1, c2 = st.columns(2)
 
             def safe_date_parse_comp(date_str):
@@ -750,18 +756,22 @@ def show_company_details():
                         return datetime.now().date()
 
             with c1:
+                # 🌟 修正ポイント2: 基本情報欄に「会社住所」の入力・編集欄を追加配置
+                c_address = st.text_input("🏢 会社住所", value=format_date(c_data.get('address', '')))
                 a36 = st.date_input("36協定 期限日（過ぎるとアラート）", safe_date_parse_comp(c_data.get('agreement_36_date')))
                 tr_d = st.date_input("講習日（6ヶ月前からアラート）", safe_date_parse_comp(c_data.get('training_date')))
-                wp_opts = ["未確認", "◯", "✖"]
-                wp_val = str(c_data.get('workplace_confirmed', '未確認'))
-                wp = st.selectbox("実習場所確認", wp_opts, index=wp_opts.index(wp_val) if wp_val in wp_opts else 0)
 
             with c2:
                 inst_mgr = st.text_input("指導責任者", value=format_date(c_data.get('instructor_manager', '')))
+                wp_opts = ["未確認", "◯", "✖"]
+                wp_val = str(c_data.get('workplace_confirmed', '未確認'))
+                wp = st.selectbox("実習場所確認", wp_opts, index=wp_opts.index(wp_val) if wp_val in wp_opts else 0)
                 v_hours = st.text_area("変形労働 備考", value=format_date(c_data.get('variable_working_hours_remarks', '')))
 
             if st.form_submit_button("💾 会社情報を保存"):
+                # 🌟 「address」フィールドをFirestoreへ確実に保存更新
                 db.collection('companies').document(c_id).update({
+                    "address": str(c_address),
                     "agreement_36_date": a36.strftime('%Y-%m-%d'),
                     "training_date": tr_d.strftime('%Y-%m-%d'),
                     "workplace_confirmed": wp,
@@ -769,7 +779,7 @@ def show_company_details():
                     "variable_working_hours_remarks": str(v_hours)
                 })
                 clear_caches();
-                st.success("保存しました！");
+                st.success("会社情報を保存しました！");
                 st.rerun()
 
     with tab_log:
@@ -792,7 +802,11 @@ def show_company_details():
 
         c_logs = fetch_where("company_logs", "company_id", "==", c_id)
         if not c_logs.empty:
-            c_logs['log_category'] = c_logs.get('log_category', '一般').fillna('一般')
+            if 'log_category' not in c_logs.columns:
+                c_logs['log_category'] = '一般'
+            else:
+                c_logs['log_category'] = c_logs['log_category'].fillna('一般')
+
             filter_cat = st.radio("表示フィルター", ["すべて"] + log_cats, horizontal=True)
             if filter_cat != "すべて": c_logs = c_logs[c_logs['log_category'] == filter_cat]
 
@@ -922,9 +936,16 @@ def show_add_new():
         with st.form("c"):
             cn = st.text_input("会社名")
             ca = st.selectbox("地域", ["近畿", "関東", "東海", "静岡", "九州", "中四国", "北信越", "北海道・東北"])
+            # 🌟 修正ポイント3: 会社追加の初期登録時にも「会社住所」を一気に登録できるように拡張
+            c_addr_new = st.text_input("🏢 会社住所", placeholder="例：大阪府大阪市...")
+
             if st.form_submit_button("登録") and cn:
-                db.collection('companies').add(
-                    {"company_name": str(cn), "area": str(ca), "created_at": firestore.SERVER_TIMESTAMP})
+                db.collection('companies').add({
+                    "company_name": str(cn),
+                    "area": str(ca),
+                    "address": str(c_addr_new),
+                    "created_at": firestore.SERVER_TIMESTAMP
+                })
                 clear_caches();
                 st.success("登録完了");
                 st.rerun()
