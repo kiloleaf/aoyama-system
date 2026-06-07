@@ -256,12 +256,19 @@ def show_dashboard():
         df_w = fetch_all_cached("foreign_workers")
         w_alerts = []
         if not df_w.empty and not df_comp_all.empty:
-            df_w['enrollment_status'] = df_w.get('enrollment_status', '在籍中').fillna('在籍中')
+
+            # 🌟 修正ポイント：AttributeError防止の安全な列初期化
+            if 'enrollment_status' not in df_w.columns:
+                df_w['enrollment_status'] = '在籍中'
+            else:
+                df_w['enrollment_status'] = df_w['enrollment_status'].fillna('在籍中')
+
             df_w = df_w[df_w['enrollment_status'] == '在籍中']
 
             df_merged = pd.merge(df_w[df_w['company_id'].isin(valid_company_ids)], df_comp_all[['id', 'company_name']],
                                  left_on='company_id', right_on='id', how='left')
             limit_5m = today + timedelta(days=150)
+            limit_14d = today + timedelta(days=14)
 
             for _, r in df_merged.iterrows():
                 try:
@@ -275,6 +282,15 @@ def show_dashboard():
                     v_d = datetime.strptime(str(r.get('visa_expiry', '')), '%Y-%m-%d').date()
                     if today <= v_d <= limit_5m: w_alerts.append(
                         {"氏名": r.get('name_en', ''), "種類": "在留期限(5ヶ月以内)", "日付": str(v_d)})
+                except:
+                    pass
+
+                try:
+                    ret_d = datetime.strptime(str(r.get('return_date', '')), '%Y-%m-%d').date()
+                    if today <= ret_d <= limit_14d:
+                        doc_stat = str(r.get('document_status', ''))
+                        if doc_stat not in ["本人所持", "本人保持"]:
+                            w_alerts.append({"氏名": r.get('name_en', ''), "種類": "🚨帰国間近(書類本人未所持)", "日付": str(ret_d)})
                 except:
                     pass
 
@@ -300,7 +316,7 @@ def show_dashboard():
                     except:
                         pass
 
-                # 🌟 追加：技能実習責任者講習日の2.5年（約913日）経過アラート
+                # 技能実習責任者講習日の2.5年（約913日）経過アラート
                 sup_tr_str = str(c.get('supervisor_training_date', ''))
                 if sup_tr_str and sup_tr_str not in ["nan", "ー", "None", ""]:
                     try:
@@ -323,7 +339,6 @@ def show_dashboard():
 def show_calendar():
     st.title("🗓️ カレンダー")
 
-    # 🌟 修正ポイント：カレンダーの表示フィルターを追加
     cal_filter = st.radio("表示フィルター", ["すべて表示", "タスクのみ表示", "走行距離のみ表示"], horizontal=True)
     st.divider()
 
@@ -386,7 +401,6 @@ def show_calendar():
                         html = f"<div class='cal-day-header' style='color:{color};'>{'📍 今日 ' if is_today else ''}{day}</div>"
 
                         tasks_html = ""
-                        # 🌟 フィルター条件に基づく表示制御
                         if cal_filter in ["すべて表示", "タスクのみ表示"]:
                             if not df_tasks.empty:
                                 for _, t in df_tasks[df_tasks['event_date'] == d_str].iterrows():
@@ -542,7 +556,7 @@ def show_calendar():
 
 
 # ==========================================
-# 👥 画面：人材名簿（表示・編集項目完全刷新・確認シールド搭載）
+# 👥 画面：人材名簿
 # ==========================================
 def show_worker_list():
     st.title("👥 人材名簿")
@@ -683,7 +697,6 @@ def show_worker_list():
                         st.session_state.uploader_key = str(time.time());
                         st.rerun()
 
-            # 🌟 追加：現在アップロードされている写真の削除ボタン
             current_photo = str(w.get('photo_path', ''))
             if current_photo.startswith('http'):
                 st.markdown("---")
@@ -867,7 +880,6 @@ def show_company_details():
                 work_addr = st.text_input("実習場所住所", value=format_date(c_data.get('workplace_address', '')))
                 a36_start = st.date_input("36協定 起算日（ここから1年経過でアラート）",
                                           safe_date_parse_comp(c_data.get('agreement_36_start_date')))
-                # 🌟 追加：技能実習責任者講習日の入力フィールド
                 sup_tr = st.date_input("技能実習責任者講習日（ここから2.5年経過でアラート）",
                                        safe_date_parse_comp(c_data.get('supervisor_training_date')))
 
