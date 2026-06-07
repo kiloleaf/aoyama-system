@@ -257,7 +257,6 @@ def show_dashboard():
         w_alerts = []
         if not df_w.empty and not df_comp_all.empty:
 
-            # 🌟 修正ポイント：AttributeError防止の安全な列初期化
             if 'enrollment_status' not in df_w.columns:
                 df_w['enrollment_status'] = '在籍中'
             else:
@@ -281,7 +280,7 @@ def show_dashboard():
                 try:
                     v_d = datetime.strptime(str(r.get('visa_expiry', '')), '%Y-%m-%d').date()
                     if today <= v_d <= limit_5m: w_alerts.append(
-                        {"氏名": r.get('name_en', ''), "種類": "在留期限(5ヶ月以内)", "日付": str(v_d)})
+                        {"氏名": r.get('name_en', ''), "種類": "在留カード期限(5ヶ月以内)", "日付": str(v_d)})
                 except:
                     pass
 
@@ -619,13 +618,13 @@ def show_worker_list():
                 st.success("在籍中")
 
         col_p.markdown(
-            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}</div>",
+            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
             unsafe_allow_html=True)
         col_v.markdown(
-            f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{format_date(w.get('visa_status'))}<br><br><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期限(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
+            f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{format_date(w.get('visa_status'))}<br><br><b>在留カード期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期間(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
             unsafe_allow_html=True)
         col_c.markdown(
-            f"##### 🏢 所属・給与等\n<div style='line-height:1.6; font-size:14px;'><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>パスポート番号</b><br>{format_date(w.get('passport_number'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>時給 / 日給</b><br>{format_date(w.get('hourly_wage'))} / {format_date(w.get('daily_wage'))}<br><br><b>居住費</b><br>{format_date(w.get('housing_cost'))}<br><br><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
+            f"##### 🏢 所属・給与等\n<div style='line-height:1.6; font-size:14px;'><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>パスポート番号</b><br>{format_date(w.get('passport_number'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>時給 / 日給</b><br>{format_date(w.get('hourly_wage'))} / {format_date(w.get('daily_wage'))}<br><br><b>居住費</b><br>{format_date(w.get('housing_cost'))}<br><br><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
 
     with tab_log:
@@ -748,8 +747,8 @@ def show_worker_list():
                             except:
                                 return datetime.now().date()
 
-                    nv = st.date_input("在留期限", safe_date_parse(w.get('visa_expiry', '')))
-                    nrc_dur = st.text_input("在留カード期限（月単位、例:18ヶ月）",
+                    nv = st.date_input("在留カード期限", safe_date_parse(w.get('visa_expiry', '')))
+                    nrc_dur = st.text_input("在留カード期間（月単位、例:18ヶ月）",
                                             value=format_date(w.get('residence_card_duration_months', '')))
                     np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
 
@@ -911,7 +910,7 @@ def show_company_details():
                     "variable_working_hours_remarks": str(v_hours)
                 })
                 clear_caches();
-                st.success("会社情報を保存しました！");
+                st.success("保存しました！");
                 st.rerun()
 
     with tab_log:
