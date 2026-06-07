@@ -79,6 +79,17 @@ def format_date(d):
     return "ー" if pd.isna(d) or str(d).strip() in ["None", "", "nan", "1900-01-01"] else str(d)
 
 
+# 🌟 追加：自動カンマフォーマット用関数（数値エラー防止付き）
+def format_currency(val):
+    if pd.isna(val) or str(val).strip() in ["", "nan", "None", "ー"]:
+        return ""
+    # 一旦カンマを外して、純粋な数字かどうか判定する
+    clean_val = str(val).replace(",", "").strip()
+    if clean_val.lstrip('-').isdigit():
+        return "{:,}".format(int(clean_val))
+    return str(val)
+
+
 # ==========================================
 # 🚨 ファイル管理機能
 # ==========================================
@@ -407,7 +418,7 @@ def show_calendar():
                                     if str(t['worker_id']) == '0': base_class += " task-general"
                                     cat_icon = "🛫" if t['category'] == "帰国手続き" else "🏢" if t[
                                                                                                  'category'] == "入管手続き" else "☑" if \
-                                    t['status'] == '完了' else "▢"
+                                        t['status'] == '完了' else "▢"
                                     tasks_html += f"<div class='{base_class}'>{cat_icon} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
 
                         if cal_filter in ["すべて表示", "走行距離のみ表示"]:
@@ -620,12 +631,17 @@ def show_worker_list():
         col_p.markdown(
             f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
             unsafe_allow_html=True)
-        # 🌟 修正ポイント：「在留カード期限」に変更
+
         col_v.markdown(
             f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{format_date(w.get('visa_status'))}<br><br><b>在留カード期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期間(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
             unsafe_allow_html=True)
+
+        w_h = format_currency(w.get('hourly_wage')) or "ー"
+        w_d = format_currency(w.get('daily_wage')) or "ー"
+        w_m = format_currency(w.get('monthly_wage')) or "ー"
+        h_c = format_currency(w.get('housing_cost')) or "ー"
         col_c.markdown(
-            f"##### 🏢 所属・給与等\n<div style='line-height:1.6; font-size:14px;'><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>パスポート番号</b><br>{format_date(w.get('passport_number'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>時給 / 日給 / 月給</b><br>{format_date(w.get('hourly_wage'))} / {format_date(w.get('daily_wage'))} / {format_date(w.get('monthly_wage'))}<br><br><b>居住費</b><br>{format_date(w.get('housing_cost'))}<br><br><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
+            f"##### 🏢 所属・給与等\n<div style='line-height:1.6; font-size:14px;'><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>パスポート番号</b><br>{format_date(w.get('passport_number'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>時給 / 日給 / 月給</b><br>{w_h} / {w_d} / {w_m}<br><br><b>居住費</b><br>{h_c}<br><br><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
 
     with tab_log:
@@ -735,13 +751,13 @@ def show_worker_list():
                                          index=["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動",
                                                 "その他"].index(w.get('visa_status', '技能実習1号')) if w.get('visa_status',
                                                                                                       '技能実習1号') in [
-                                                                                                          "技能実習1号",
-                                                                                                          "技能実習2号",
-                                                                                                          "技能実習3号",
-                                                                                                          "特定技能1号",
-                                                                                                          "特定技能2号",
-                                                                                                          "特定活動",
-                                                                                                          "その他"] else 0)
+                                                                                                    "技能実習1号",
+                                                                                                    "技能実習2号",
+                                                                                                    "技能実習3号",
+                                                                                                    "特定技能1号",
+                                                                                                    "特定技能2号",
+                                                                                                    "特定活動",
+                                                                                                    "その他"] else 0)
                     nrc_n = st.text_input("在留カード番号", value=format_date(w.get('residence_card_number', '')))
                     npass_n = st.text_input("パスポート番号", value=format_date(w.get('passport_number', '')))
                 with e4:
@@ -756,9 +772,7 @@ def show_worker_list():
                             except:
                                 return datetime.now().date()
 
-                    # 🌟 修正ポイント：「在留カード期限」に変更
                     nv = st.date_input("在留カード期限", safe_date_parse(w.get('visa_expiry', '')))
-                    # 🌟 修正ポイント：「在留カード期間」に変更
                     nrc_dur = st.text_input("在留カード期間（月単位、例:18ヶ月）",
                                             value=format_date(w.get('residence_card_duration_months', '')))
                     np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
@@ -777,15 +791,14 @@ def show_worker_list():
                 st.markdown("---")
                 e7, e8 = st.columns(2)
                 with e7:
-                    nwage_h = st.text_input("時給 (円)", value=format_date(w.get('hourly_wage', '')))
-                    # 🌟 追加：月給入力欄を追加
-                    nwage_m = st.text_input("月給 (円)", value=format_date(w.get('monthly_wage', '')))
+                    nwage_h = st.text_input("時給 (円)", value=format_currency(w.get('hourly_wage', '')))
+                    nwage_m = st.text_input("月給 (円)", value=format_currency(w.get('monthly_wage', '')))
                     nr = st.text_input("宿舎・寮住所", value=format_date(w.get('residence_address', '')))
-                    nrem = st.text_input("備考", value=format_date(w.get('remarks', '')))
                 with e8:
-                    nwage_d = st.text_input("日給 (円)", value=format_date(w.get('daily_wage', '')))
-                    nhousing = st.text_input("居住費", value=format_date(w.get('housing_cost', '')))
+                    nwage_d = st.text_input("日給 (円)", value=format_currency(w.get('daily_wage', '')))
+                    nhousing = st.text_input("居住費", value=format_currency(w.get('housing_cost', '')))
                     nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
+                    nrem = st.text_input("備考", value=format_date(w.get('remarks', '')))
 
                 st.markdown("---")
                 confirm_save = st.checkbox("上記の内容で保存（上書き）することを確認しました", key=f"chk_save_{selected_id}")
@@ -810,11 +823,10 @@ def show_worker_list():
                             "ssw1_end_date": str(nssw1_e),
                             "ssw2_start_date": str(nssw2_s),
                             "entry_date": str(nentry),
-                            "hourly_wage": str(nwage_h),
-                            "daily_wage": str(nwage_d),
-                            # 🌟 追加：月給の保存
-                            "monthly_wage": str(nwage_m),
-                            "housing_cost": str(nhousing),
+                            "hourly_wage": format_currency(nwage_h),
+                            "daily_wage": format_currency(nwage_d),
+                            "monthly_wage": format_currency(nwage_m),
+                            "housing_cost": format_currency(nhousing),
                             "residence_address": str(nr),
                             "dispatch_agency": str(nagency),
                             "remarks": str(nrem)
