@@ -620,11 +620,12 @@ def show_worker_list():
         col_p.markdown(
             f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
             unsafe_allow_html=True)
+        # 🌟 修正ポイント：「在留カード期限」に変更
         col_v.markdown(
             f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{format_date(w.get('visa_status'))}<br><br><b>在留カード期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期間(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
             unsafe_allow_html=True)
         col_c.markdown(
-            f"##### 🏢 所属・給与等\n<div style='line-height:1.6; font-size:14px;'><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>パスポート番号</b><br>{format_date(w.get('passport_number'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>時給 / 日給</b><br>{format_date(w.get('hourly_wage'))} / {format_date(w.get('daily_wage'))}<br><br><b>居住費</b><br>{format_date(w.get('housing_cost'))}<br><br><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
+            f"##### 🏢 所属・給与等\n<div style='line-height:1.6; font-size:14px;'><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>パスポート番号</b><br>{format_date(w.get('passport_number'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>時給 / 日給 / 月給</b><br>{format_date(w.get('hourly_wage'))} / {format_date(w.get('daily_wage'))} / {format_date(w.get('monthly_wage'))}<br><br><b>居住費</b><br>{format_date(w.get('housing_cost'))}<br><br><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
 
     with tab_log:
@@ -729,10 +730,18 @@ def show_worker_list():
                 st.markdown("---")
                 e3, e4 = st.columns(2)
                 with e3:
-                    nvisa = st.selectbox("在留資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"],
-                                         index=["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"].index(
-                                             w.get('visa_status', '技能実習1号')) if w.get('visa_status', '技能実習1号') in [
-                                             "技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"] else 0)
+                    nvisa = st.selectbox("在留資格",
+                                         ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"],
+                                         index=["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動",
+                                                "その他"].index(w.get('visa_status', '技能実習1号')) if w.get('visa_status',
+                                                                                                      '技能実習1号') in [
+                                                                                                          "技能実習1号",
+                                                                                                          "技能実習2号",
+                                                                                                          "技能実習3号",
+                                                                                                          "特定技能1号",
+                                                                                                          "特定技能2号",
+                                                                                                          "特定活動",
+                                                                                                          "その他"] else 0)
                     nrc_n = st.text_input("在留カード番号", value=format_date(w.get('residence_card_number', '')))
                     npass_n = st.text_input("パスポート番号", value=format_date(w.get('passport_number', '')))
                 with e4:
@@ -747,7 +756,9 @@ def show_worker_list():
                             except:
                                 return datetime.now().date()
 
+                    # 🌟 修正ポイント：「在留カード期限」に変更
                     nv = st.date_input("在留カード期限", safe_date_parse(w.get('visa_expiry', '')))
+                    # 🌟 修正ポイント：「在留カード期間」に変更
                     nrc_dur = st.text_input("在留カード期間（月単位、例:18ヶ月）",
                                             value=format_date(w.get('residence_card_duration_months', '')))
                     np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
@@ -767,12 +778,14 @@ def show_worker_list():
                 e7, e8 = st.columns(2)
                 with e7:
                     nwage_h = st.text_input("時給 (円)", value=format_date(w.get('hourly_wage', '')))
-                    nhousing = st.text_input("居住費", value=format_date(w.get('housing_cost', '')))
+                    # 🌟 追加：月給入力欄を追加
+                    nwage_m = st.text_input("月給 (円)", value=format_date(w.get('monthly_wage', '')))
                     nr = st.text_input("宿舎・寮住所", value=format_date(w.get('residence_address', '')))
+                    nrem = st.text_input("備考", value=format_date(w.get('remarks', '')))
                 with e8:
                     nwage_d = st.text_input("日給 (円)", value=format_date(w.get('daily_wage', '')))
+                    nhousing = st.text_input("居住費", value=format_date(w.get('housing_cost', '')))
                     nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
-                    nrem = st.text_input("備考", value=format_date(w.get('remarks', '')))
 
                 st.markdown("---")
                 confirm_save = st.checkbox("上記の内容で保存（上書き）することを確認しました", key=f"chk_save_{selected_id}")
@@ -799,6 +812,8 @@ def show_worker_list():
                             "entry_date": str(nentry),
                             "hourly_wage": str(nwage_h),
                             "daily_wage": str(nwage_d),
+                            # 🌟 追加：月給の保存
+                            "monthly_wage": str(nwage_m),
                             "housing_cost": str(nhousing),
                             "residence_address": str(nr),
                             "dispatch_agency": str(nagency),
@@ -857,7 +872,8 @@ def show_company_details():
             with c1:
                 rep_name = st.text_input("代表者氏名", value=format_date(c_data.get('representative_name', '')))
             with c2:
-                rep_kana = st.text_input("代表者氏名（カナ）", value=format_date(c_data.get('representative_name_kana', '')))
+                rep_kana = st.text_input("代表者氏名（カナ）",
+                                         value=format_date(c_data.get('representative_name_kana', '')))
 
             c_address = st.text_input("🏢 会社住所", value=format_date(c_data.get('address', '')))
             industry = st.text_input("特定産業分野", value=format_date(c_data.get('specific_industry_field', '')))
@@ -866,7 +882,8 @@ def show_company_details():
             c3, c4 = st.columns(2)
 
             def safe_date_parse_comp(date_str):
-                if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー"]: return datetime.now().date()
+                if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None",
+                                                                  "ー"]: return datetime.now().date()
                 try:
                     return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
                 except:
@@ -893,7 +910,8 @@ def show_company_details():
             with c5:
                 inst_mgr = st.text_input("指導責任者", value=format_date(c_data.get('instructor_manager', '')))
             with c6:
-                v_hours = st.text_area("変形労働 備考", value=format_date(c_data.get('variable_working_hours_remarks', '')))
+                v_hours = st.text_area("変形労働 備考",
+                                       value=format_date(c_data.get('variable_working_hours_remarks', '')))
 
             if st.form_submit_button("💾 会社情報を保存"):
                 db.collection('companies').document(c_id).update({
@@ -1079,8 +1097,7 @@ def show_add_new():
                         "created_at": firestore.SERVER_TIMESTAMP
                     })
                     clear_caches();
-                    st.success("会社の登録が完了しました！");
-                    time.sleep(1);
+                    st.success("登録完了");
                     st.rerun()
                 elif not confirm_new_c:
                     st.error("※ 登録する場合は、「確認しました」のチェックを入れてください。")
@@ -1091,24 +1108,20 @@ def show_add_new():
         if not df_comp_all.empty:
             df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
             with st.form("w"):
-                comp = str(st.selectbox("所属会社", df_c['id'].tolist(),
+                comp = str(st.selectbox("所属", df_c['id'].tolist(),
                                         format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0]))
-                name = st.text_input("氏名（ローマ字等）")
-                visa = st.selectbox("在留資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
+                name = st.text_input("氏名")
+                visa = st.selectbox("資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
 
                 confirm_new_w = st.checkbox("二重登録ではないことを確認しました", key="chk_new_w")
                 if st.form_submit_button("登録"):
                     if name and confirm_new_w:
-                        db.collection('foreign_workers').add({
-                            "company_id": comp,
-                            "name_en": str(name),
-                            "visa_status": str(visa),
-                            "enrollment_status": "在籍中",
-                            "created_at": firestore.SERVER_TIMESTAMP
-                        })
+                        db.collection('foreign_workers').add(
+                            {"company_id": comp, "name_en": str(name), "visa_status": str(visa), "is_away": 0,
+                             "document_status": "本人所持", "enrollment_status": "在籍中",
+                             "created_at": firestore.SERVER_TIMESTAMP})
                         clear_caches();
-                        st.success("人材の登録が完了しました！");
-                        time.sleep(1);
+                        st.success("登録完了");
                         st.rerun()
                     elif not confirm_new_w:
                         st.error("※ 登録する場合は、「確認しました」のチェックを入れてください。")
