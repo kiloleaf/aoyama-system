@@ -252,11 +252,10 @@ def show_dashboard():
             st.write("タスクデータがありません。")
 
     with col2:
-        st.subheader("🛂 人材 期限アラート (5ヶ月以内)")
+        st.subheader("🛂 人材 期限・トラブル防止アラート")
         df_w = fetch_all_cached("foreign_workers")
         w_alerts = []
         if not df_w.empty and not df_comp_all.empty:
-            # 🌟 非在籍者をアラートから除外するための処理を追加（任意ですが実務上必須のため内包）
             df_w['enrollment_status'] = df_w.get('enrollment_status', '在籍中').fillna('在籍中')
             df_w = df_w[df_w['enrollment_status'] == '在籍中']
 
@@ -290,14 +289,25 @@ def show_dashboard():
         c_alerts = []
         if not df_comp_all.empty:
             for _, c in df_comp_all[df_comp_all['id'].isin(valid_company_ids)].iterrows():
-                # 🌟 36協定「起算日」から1年（365日）経過でアラートを出すロジックに変更
+                # 36協定起算日からの1年経過アラート
                 a36_start_str = str(c.get('agreement_36_start_date', ''))
                 if a36_start_str and a36_start_str not in ["nan", "ー", "None", ""]:
                     try:
                         start_date = datetime.strptime(a36_start_str, '%Y-%m-%d').date()
                         limit_date = start_date + timedelta(days=365)  # 起算日から1年後
-                        if today > limit_date:
+                        if today >= limit_date:
                             c_alerts.append({"会社名": c['company_name'], "種類": "36協定 期限切れ", "日付": str(limit_date)})
+                    except:
+                        pass
+
+                # 🌟 追加：技能実習責任者講習日の2.5年（約913日）経過アラート
+                sup_tr_str = str(c.get('supervisor_training_date', ''))
+                if sup_tr_str and sup_tr_str not in ["nan", "ー", "None", ""]:
+                    try:
+                        sup_tr_date = datetime.strptime(sup_tr_str, '%Y-%m-%d').date()
+                        limit_2_5y = sup_tr_date + timedelta(days=913)  # 2.5年後(約913日)
+                        if today >= limit_2_5y:
+                            c_alerts.append({"会社名": c['company_name'], "種類": "責任者講習から2.5年経過", "日付": sup_tr_str})
                     except:
                         pass
 
@@ -312,6 +322,10 @@ def show_dashboard():
 # ==========================================
 def show_calendar():
     st.title("🗓️ カレンダー")
+
+    # 🌟 修正ポイント：カレンダーの表示フィルターを追加
+    cal_filter = st.radio("表示フィルター", ["すべて表示", "タスクのみ表示", "走行距離のみ表示"], horizontal=True)
+    st.divider()
 
     if 'cal_current_date' not in st.session_state:
         st.session_state.cal_current_date = datetime.now().date()
@@ -372,18 +386,21 @@ def show_calendar():
                         html = f"<div class='cal-day-header' style='color:{color};'>{'📍 今日 ' if is_today else ''}{day}</div>"
 
                         tasks_html = ""
-                        if not df_tasks.empty:
-                            for _, t in df_tasks[df_tasks['event_date'] == d_str].iterrows():
-                                base_class = "task-item task-done" if t['status'] == '完了' else "task-item"
-                                if str(t['worker_id']) == '0': base_class += " task-general"
-                                cat_icon = "🛫" if t['category'] == "帰国手続き" else "🏢" if t[
-                                                                                             'category'] == "入管手続き" else "☑" if \
-                                t['status'] == '完了' else "▢"
-                                tasks_html += f"<div class='{base_class}'>{cat_icon} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
+                        # 🌟 フィルター条件に基づく表示制御
+                        if cal_filter in ["すべて表示", "タスクのみ表示"]:
+                            if not df_tasks.empty:
+                                for _, t in df_tasks[df_tasks['event_date'] == d_str].iterrows():
+                                    base_class = "task-item task-done" if t['status'] == '完了' else "task-item"
+                                    if str(t['worker_id']) == '0': base_class += " task-general"
+                                    cat_icon = "🛫" if t['category'] == "帰国手続き" else "🏢" if t[
+                                                                                                 'category'] == "入管手続き" else "☑" if \
+                                    t['status'] == '完了' else "▢"
+                                    tasks_html += f"<div class='{base_class}'>{cat_icon} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
 
-                        if not df_mileage.empty and 'record_date' in df_mileage.columns:
-                            for _, m_row in df_mileage[df_mileage['record_date'] == d_str].iterrows():
-                                tasks_html += f"<div class='task-item task-mileage'>🚗 {m_row.get('driven_km', 0)}km ({str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')})</div>"
+                        if cal_filter in ["すべて表示", "走行距離のみ表示"]:
+                            if not df_mileage.empty and 'record_date' in df_mileage.columns:
+                                for _, m_row in df_mileage[df_mileage['record_date'] == d_str].iterrows():
+                                    tasks_html += f"<div class='task-item task-mileage'>🚗 {m_row.get('driven_km', 0)}km ({str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')})</div>"
 
                         st.markdown(f'<div class="cal-cell" style="{bg_style}">{html}{tasks_html}</div>',
                                     unsafe_allow_html=True)
@@ -540,7 +557,6 @@ def show_worker_list():
     df['visa_order'] = df['visa_status'].map(
         {'技能実習1号': 1, '技能実習2号': 2, '技能実習3号': 3, '特定活動': 4, '特定技能1号': 5, '特定技能2号': 6}).fillna(7)
 
-    # 🌟 修正ポイント：在籍状況（enrollment_status）がない場合は「在籍中」で補完
     if 'enrollment_status' not in df.columns:
         df['enrollment_status'] = '在籍中'
     else:
@@ -548,7 +564,6 @@ def show_worker_list():
 
     df = df.sort_values(by=['company_name', 'visa_order', 'entry_date'], ascending=[True, True, True])
 
-    # 🌟 修正ポイント：在籍状況切り替えフィルターを追加
     st.markdown("### 🔍 対象者の絞り込み・検索")
     enroll_filter = st.radio("表示する在籍状況", ["在籍中", "非在籍中", "すべて表示"], horizontal=True)
     if enroll_filter != "すべて表示":
@@ -576,7 +591,6 @@ def show_worker_list():
     tab_info, tab_log, tab_files, tab_edit = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理", "✏️ 登録情報の編集"])
 
     with tab_info:
-        # 🌟 修正ポイント：基本情報レイアウトを3カラムに変更し、表示項目を刷新
         col_img, col_p, col_v, col_c = st.columns([1.5, 3, 3, 3])
         with col_img:
             img_val = str(w.get('photo_path', ''))
@@ -585,7 +599,6 @@ def show_worker_list():
             else:
                 st.info("📷 未登録")
 
-            # 在籍状況のバッジ表示
             if w.get('enrollment_status') == '非在籍中':
                 st.error("非在籍（退職等）")
             else:
@@ -670,9 +683,20 @@ def show_worker_list():
                         st.session_state.uploader_key = str(time.time());
                         st.rerun()
 
+            # 🌟 追加：現在アップロードされている写真の削除ボタン
+            current_photo = str(w.get('photo_path', ''))
+            if current_photo.startswith('http'):
+                st.markdown("---")
+                st.write("🗑️ **現在の写真を削除**")
+                if st.button("写真を削除する", type="secondary", key=f"btn_p_del_{selected_id}"):
+                    db.collection('foreign_workers').document(selected_id).update({"photo_path": ""})
+                    clear_caches();
+                    st.success("写真を削除しました！");
+                    time.sleep(1);
+                    st.rerun()
+
         with col_edit_form:
             with st.form(f"edit_worker_info_form_{selected_id}"):
-                # 🌟 修正ポイント：編集項目の完全刷新と追加
                 n_enroll = st.selectbox("在籍状況", ["在籍中", "非在籍中"],
                                         index=0 if w.get('enrollment_status', '在籍中') == '在籍中' else 1)
                 nc = st.selectbox("所属会社（移籍）", df_comp_all['company_name'].tolist(),
@@ -712,8 +736,8 @@ def show_worker_list():
                                 return datetime.now().date()
 
                     nv = st.date_input("在留期限", safe_date_parse(w.get('visa_expiry', '')))
-                    nrc_dur = st.text_input("在留カード期限（月単位、例:18ヶ月）", value=format_date(
-                        w.get('residence_card_duration_months', '')))  # INT64対策で文字列として処理
+                    nrc_dur = st.text_input("在留カード期限（月単位、例:18ヶ月）",
+                                            value=format_date(w.get('residence_card_duration_months', '')))
                     np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
 
                 st.markdown("---")
@@ -739,7 +763,6 @@ def show_worker_list():
                     nrem = st.text_input("備考", value=format_date(w.get('remarks', '')))
 
                 st.markdown("---")
-                # 🌟 修正ポイント：確認チェックボックスによる誤操作防止機能の搭載
                 confirm_save = st.checkbox("上記の内容で保存（上書き）することを確認しました", key=f"chk_save_{selected_id}")
 
                 if st.form_submit_button("💾 変更をすべて保存する"):
@@ -775,7 +798,6 @@ def show_worker_list():
                     else:
                         st.error("※ 保存する場合は、「確認しました」のチェックを入れてからボタンを押してください。")
 
-        # 🌟 修正ポイント：人材データの完全削除機能（安全チェック付き）
         st.markdown("---")
         st.markdown("##### 🗑️ 人材データの削除")
         with st.form(f"del_worker_form_{selected_id}"):
@@ -819,7 +841,6 @@ def show_company_details():
         with st.form("comp_edit_form"):
             st.markdown("##### ⚙️ 会社基本情報・各種設定")
 
-            # 🌟 修正ポイント：会社情報への新規項目追加
             c1, c2 = st.columns(2)
             with c1:
                 rep_name = st.text_input("代表者氏名", value=format_date(c_data.get('representative_name', '')))
@@ -844,9 +865,11 @@ def show_company_details():
 
             with c3:
                 work_addr = st.text_input("実習場所住所", value=format_date(c_data.get('workplace_address', '')))
-                # 🌟 修正ポイント：「36協定起算日」に変更
                 a36_start = st.date_input("36協定 起算日（ここから1年経過でアラート）",
                                           safe_date_parse_comp(c_data.get('agreement_36_start_date')))
+                # 🌟 追加：技能実習責任者講習日の入力フィールド
+                sup_tr = st.date_input("技能実習責任者講習日（ここから2.5年経過でアラート）",
+                                       safe_date_parse_comp(c_data.get('supervisor_training_date')))
 
             with c4:
                 work_tel = st.text_input("実習場所TEL", value=format_date(c_data.get('workplace_tel', '')))
@@ -870,6 +893,7 @@ def show_company_details():
                     "workplace_address": str(work_addr),
                     "workplace_tel": str(work_tel),
                     "agreement_36_start_date": a36_start.strftime('%Y-%m-%d'),
+                    "supervisor_training_date": sup_tr.strftime('%Y-%m-%d'),
                     "workplace_confirmed": wp,
                     "instructor_manager": str(inst_mgr),
                     "variable_working_hours_remarks": str(v_hours)
@@ -1023,7 +1047,7 @@ def show_logs_manager():
 
 
 # ==========================================
-# ➕ 画面：新規登録（二重登録・誤操作防止機能搭載）
+# ➕ 画面：新規登録
 # ==========================================
 def show_add_new():
     st.title("➕ 新規登録")
@@ -1034,7 +1058,6 @@ def show_add_new():
             ca = st.selectbox("地域", ["近畿", "関東", "東海", "静岡", "九州", "中四国", "北信越", "北海道・東北"])
             c_addr_new = st.text_input("🏢 会社住所", placeholder="例：大阪府大阪市...")
 
-            # 🌟 修正ポイント：確認チェックボックスの追加
             confirm_new_c = st.checkbox("二重登録ではないことを確認しました", key="chk_new_c")
             if st.form_submit_button("登録"):
                 if cn and confirm_new_c:
@@ -1062,7 +1085,6 @@ def show_add_new():
                 name = st.text_input("氏名（ローマ字等）")
                 visa = st.selectbox("在留資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
 
-                # 🌟 修正ポイント：確認チェックボックスの追加
                 confirm_new_w = st.checkbox("二重登録ではないことを確認しました", key="chk_new_w")
                 if st.form_submit_button("登録"):
                     if name and confirm_new_w:
@@ -1070,7 +1092,7 @@ def show_add_new():
                             "company_id": comp,
                             "name_en": str(name),
                             "visa_status": str(visa),
-                            "enrollment_status": "在籍中",  # 新規登録は自動的に在籍中にする
+                            "enrollment_status": "在籍中",
                             "created_at": firestore.SERVER_TIMESTAMP
                         })
                         clear_caches();
