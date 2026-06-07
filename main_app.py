@@ -53,7 +53,7 @@ check_password()
 
 
 # ==========================================
-# 🚀 爆速化・共通関数（int64型エラー徹底完全対策）
+# 🚀 爆速化・共通関数（INT64型エラー徹底完全対策）
 # ==========================================
 @st.cache_data(ttl=300)
 def fetch_all_cached(collection_name):
@@ -252,14 +252,17 @@ def show_dashboard():
             st.write("タスクデータがありません。")
 
     with col2:
-        st.subheader("🛂 人材 期限・トラブル防止アラート")
+        st.subheader("🛂 人材 期限アラート (5ヶ月以内)")
         df_w = fetch_all_cached("foreign_workers")
         w_alerts = []
         if not df_w.empty and not df_comp_all.empty:
+            # 🌟 非在籍者をアラートから除外するための処理を追加（任意ですが実務上必須のため内包）
+            df_w['enrollment_status'] = df_w.get('enrollment_status', '在籍中').fillna('在籍中')
+            df_w = df_w[df_w['enrollment_status'] == '在籍中']
+
             df_merged = pd.merge(df_w[df_w['company_id'].isin(valid_company_ids)], df_comp_all[['id', 'company_name']],
                                  left_on='company_id', right_on='id', how='left')
             limit_5m = today + timedelta(days=150)
-            limit_14d = today + timedelta(days=14)
 
             for _, r in df_merged.iterrows():
                 try:
@@ -276,15 +279,6 @@ def show_dashboard():
                 except:
                     pass
 
-                try:
-                    ret_d = datetime.strptime(str(r.get('return_date', '')), '%Y-%m-%d').date()
-                    if today <= ret_d <= limit_14d:
-                        doc_stat = str(r.get('document_status', ''))
-                        if doc_stat not in ["本人所持", "本人保持"]:
-                            w_alerts.append({"氏名": r.get('name_en', ''), "種類": "🚨帰国間近(書類本人未所持)", "日付": str(ret_d)})
-                except:
-                    pass
-
         if w_alerts:
             st.dataframe(pd.DataFrame(w_alerts), use_container_width=True, hide_index=True)
         else:
@@ -296,23 +290,17 @@ def show_dashboard():
         c_alerts = []
         if not df_comp_all.empty:
             for _, c in df_comp_all[df_comp_all['id'].isin(valid_company_ids)].iterrows():
-                a36_str = str(c.get('agreement_36_date', ''))
-                if a36_str and a36_str not in ["nan", "ー", "None", ""]:
+                # 🌟 36協定「起算日」から1年（365日）経過でアラートを出すロジックに変更
+                a36_start_str = str(c.get('agreement_36_start_date', ''))
+                if a36_start_str and a36_start_str not in ["nan", "ー", "None", ""]:
                     try:
-                        if today > datetime.strptime(a36_str, '%Y-%m-%d').date():
-                            c_alerts.append({"会社名": c['company_name'], "種類": "36協定 期限切れ", "日付": a36_str})
+                        start_date = datetime.strptime(a36_start_str, '%Y-%m-%d').date()
+                        limit_date = start_date + timedelta(days=365)  # 起算日から1年後
+                        if today > limit_date:
+                            c_alerts.append({"会社名": c['company_name'], "種類": "36協定 期限切れ", "日付": str(limit_date)})
                     except:
                         pass
 
-                tr_str = str(c.get('training_date', ''))
-                if tr_str and tr_str not in ["nan", "ー", "None", ""]:
-                    try:
-                        tr_d = datetime.strptime(tr_str, '%Y-%m-%d').date()
-                        limit_6m = today + timedelta(days=180)
-                        if today <= tr_d <= limit_6m:
-                            c_alerts.append({"会社名": c['company_name'], "種類": "講習日接近(6ヶ月以内)", "日付": tr_str})
-                    except:
-                        pass
         if c_alerts:
             st.dataframe(pd.DataFrame(c_alerts), use_container_width=True, hide_index=True)
         else:
@@ -537,7 +525,7 @@ def show_calendar():
 
 
 # ==========================================
-# 👥 画面：人材名簿
+# 👥 画面：人材名簿（表示・編集項目完全刷新・確認シールド搭載）
 # ==========================================
 def show_worker_list():
     st.title("👥 人材名簿")
@@ -551,7 +539,20 @@ def show_worker_list():
                   how='left').rename(columns={'address': 'comp_address', 'id_x': 'id'})
     df['visa_order'] = df['visa_status'].map(
         {'技能実習1号': 1, '技能実習2号': 2, '技能実習3号': 3, '特定活動': 4, '特定技能1号': 5, '特定技能2号': 6}).fillna(7)
+
+    # 🌟 修正ポイント：在籍状況（enrollment_status）がない場合は「在籍中」で補完
+    if 'enrollment_status' not in df.columns:
+        df['enrollment_status'] = '在籍中'
+    else:
+        df['enrollment_status'] = df['enrollment_status'].fillna('在籍中')
+
     df = df.sort_values(by=['company_name', 'visa_order', 'entry_date'], ascending=[True, True, True])
+
+    # 🌟 修正ポイント：在籍状況切り替えフィルターを追加
+    st.markdown("### 🔍 対象者の絞り込み・検索")
+    enroll_filter = st.radio("表示する在籍状況", ["在籍中", "非在籍中", "すべて表示"], horizontal=True)
+    if enroll_filter != "すべて表示":
+        df = df[df['enrollment_status'] == enroll_filter]
 
     c1, c2 = st.columns(2)
     comp_search = c1.text_input("🏢 会社名で検索（部分一致）")
@@ -575,21 +576,29 @@ def show_worker_list():
     tab_info, tab_log, tab_files, tab_edit = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理", "✏️ 登録情報の編集"])
 
     with tab_info:
-        col_img, col_p, col_v, col_c = st.columns(4)
+        # 🌟 修正ポイント：基本情報レイアウトを3カラムに変更し、表示項目を刷新
+        col_img, col_p, col_v, col_c = st.columns([1.5, 3, 3, 3])
         with col_img:
             img_val = str(w.get('photo_path', ''))
             if img_val.startswith('http'):
                 st.image(img_val, use_container_width=True)
             else:
                 st.info("📷 未登録")
+
+            # 在籍状況のバッジ表示
+            if w.get('enrollment_status') == '非在籍中':
+                st.error("非在籍（退職等）")
+            else:
+                st.success("在籍中")
+
         col_p.markdown(
-            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
+            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}</div>",
             unsafe_allow_html=True)
         col_v.markdown(
-            f"##### ✈️ 在留情報\n<div style='line-height:1.6; font-size:14px;'><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>帰国日</b><br>{format_date(w.get('return_date'))}</div>",
+            f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{format_date(w.get('visa_status'))}<br><br><b>在留期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期限(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
             unsafe_allow_html=True)
         col_c.markdown(
-            f"##### 🏢 その他\n<div style='line-height:1.6; font-size:14px;'><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>パスポート・在留カード保管先</b><br>{format_date(w.get('document_status'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
+            f"##### 🏢 所属・給与等\n<div style='line-height:1.6; font-size:14px;'><b>入国日</b><br>{format_date(w.get('entry_date'))}<br><br><b>パスポート番号</b><br>{format_date(w.get('passport_number'))}<br><br><b>パスポート期限</b><br>{format_date(w.get('passport_expiration_date'))}<br><br><b>時給 / 日給</b><br>{format_date(w.get('hourly_wage'))} / {format_date(w.get('daily_wage'))}<br><br><b>居住費</b><br>{format_date(w.get('housing_cost'))}<br><br><b>宿舎・寮住所</b><br>{format_date(w.get('residence_address'))}<br><br><b>斡旋機関</b><br>{format_date(w.get('dispatch_agency'))}<br><br><b>備考</b><br>{format_date(w.get('remarks'))}</div>",
             unsafe_allow_html=True)
 
     with tab_log:
@@ -632,7 +641,6 @@ def show_worker_list():
             st.write("📷 **新しい写真の登録**")
             if "uploader_key" not in st.session_state: st.session_state.uploader_key = str(time.time())
             new_photo = st.file_uploader("写真を選択", type=["jpg", "png", "jpeg"], key=st.session_state.uploader_key)
-
             if new_photo and st.button("🚀 写真を保存", type="primary", key=f"btn_p_save_{selected_id}"):
                 import io
                 img = Image.open(new_photo);
@@ -664,67 +672,134 @@ def show_worker_list():
 
         with col_edit_form:
             with st.form(f"edit_worker_info_form_{selected_id}"):
+                # 🌟 修正ポイント：編集項目の完全刷新と追加
+                n_enroll = st.selectbox("在籍状況", ["在籍中", "非在籍中"],
+                                        index=0 if w.get('enrollment_status', '在籍中') == '在籍中' else 1)
                 nc = st.selectbox("所属会社（移籍）", df_comp_all['company_name'].tolist(),
                                   index=df_comp_all['company_name'].tolist().index(w['company_name']))
                 ncid = str(df_comp_all[df_comp_all['company_name'] == nc]['id'].values[0])
-                nr = st.text_input("宿舎・寮住所", value=format_date(w.get('residence_address', '')))
-                nbirth = st.text_input("生年月日", value=format_date(w.get('birthdate', '')))
-                ngender = st.text_input("性別", value=format_date(w.get('gender', '')))
-                nnat = st.text_input("国籍", value=format_date(w.get('nationality', '')))
-                nbirthp = st.text_input("出身地", value=format_date(w.get('birthplace', '')))
-                nhome = st.text_input("本国居住地", value=format_date(w.get('home_address', '')))
 
-                # 重複していた関数定義箇所を完全にクリーンアップ
-                def safe_date_parse(date_str):
-                    if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None",
-                                                                      "ー"]: return datetime.now().date()
-                    try:
-                        return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
-                    except:
+                st.markdown("---")
+                e1, e2 = st.columns(2)
+                with e1:
+                    nkana = st.text_input("氏名カナ", value=format_date(w.get('name_kana', '')))
+                    nbirth = st.text_input("生年月日", value=format_date(w.get('birthdate', '')))
+                    nnat = st.text_input("国籍", value=format_date(w.get('nationality', '')))
+                with e2:
+                    nnick = st.text_input("ニックネーム", value=format_date(w.get('nickname', '')))
+                    ngender = st.text_input("性別", value=format_date(w.get('gender', '')))
+                    nentry = st.text_input("入国日", value=format_date(w.get('entry_date', '')))
+
+                st.markdown("---")
+                e3, e4 = st.columns(2)
+                with e3:
+                    nvisa = st.selectbox("在留資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"],
+                                         index=["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"].index(
+                                             w.get('visa_status', '技能実習1号')) if w.get('visa_status', '技能実習1号') in [
+                                             "技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"] else 0)
+                    nrc_n = st.text_input("在留カード番号", value=format_date(w.get('residence_card_number', '')))
+                    npass_n = st.text_input("パスポート番号", value=format_date(w.get('passport_number', '')))
+                with e4:
+                    def safe_date_parse(date_str):
+                        if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None",
+                                                                          "ー"]: return datetime.now().date()
                         try:
-                            return datetime.strptime(str(date_str).strip()[:10], '%Y/%m/%d').date()
+                            return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
                         except:
-                            return datetime.now().date()
+                            try:
+                                return datetime.strptime(str(date_str).strip()[:10], '%Y/%m/%d').date()
+                            except:
+                                return datetime.now().date()
 
-                nv = st.date_input("在留期限", safe_date_parse(w.get('visa_expiry', '')))
-                np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
+                    nv = st.date_input("在留期限", safe_date_parse(w.get('visa_expiry', '')))
+                    nrc_dur = st.text_input("在留カード期限（月単位、例:18ヶ月）", value=format_date(
+                        w.get('residence_card_duration_months', '')))  # INT64対策で文字列として処理
+                    np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
 
-                nentry = st.text_input("入国日", value=format_date(w.get('entry_date', '')))
-                nret = st.text_input("帰国日", value=format_date(w.get('return_date', '')))
-                nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
+                st.markdown("---")
+                e5, e6 = st.columns(2)
+                with e5:
+                    nssw1_s = st.text_input("特定技能1号開始日 (手入力 例:2024/01/01)",
+                                            value=format_date(w.get('ssw1_start_date', '')))
+                    nssw2_s = st.text_input("特定技能2号開始日 (手入力 例:2025/01/01)",
+                                            value=format_date(w.get('ssw2_start_date', '')))
+                with e6:
+                    nssw1_e = st.text_input("特定技能1号終了日 (手入力 例:2024/12/31)",
+                                            value=format_date(w.get('ssw1_end_date', '')))
 
-                opts = ["本人所持", "事務所預かり", "更新手続中", "紛失中", "未確認"]
-                current_doc = w.get('document_status', '')
-                if current_doc == "本人保持": current_doc = "本人所持"
-                ndoc = st.selectbox("パスポート・在留カード保管先", opts, index=opts.index(current_doc) if current_doc in opts else 0)
+                st.markdown("---")
+                e7, e8 = st.columns(2)
+                with e7:
+                    nwage_h = st.text_input("時給 (円)", value=format_date(w.get('hourly_wage', '')))
+                    nhousing = st.text_input("居住費", value=format_date(w.get('housing_cost', '')))
+                    nr = st.text_input("宿舎・寮住所", value=format_date(w.get('residence_address', '')))
+                with e8:
+                    nwage_d = st.text_input("日給 (円)", value=format_date(w.get('daily_wage', '')))
+                    nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
+                    nrem = st.text_input("備考", value=format_date(w.get('remarks', '')))
 
-                nrem = st.text_area("備考", value=format_date(w.get('remarks', '')))
+                st.markdown("---")
+                # 🌟 修正ポイント：確認チェックボックスによる誤操作防止機能の搭載
+                confirm_save = st.checkbox("上記の内容で保存（上書き）することを確認しました", key=f"chk_save_{selected_id}")
 
-                if st.form_submit_button("💾 右側の変更をすべて保存"):
-                    db.collection('foreign_workers').document(selected_id).update({
-                        "company_id": ncid, "residence_address": str(nr), "birthdate": str(nbirth),
-                        "gender": str(ngender),
-                        "nationality": str(nnat), "birthplace": str(nbirthp), "home_address": str(nhome),
-                        "visa_expiry": nv.strftime('%Y-%m-%d'),
-                        "passport_expiration_date": np_exp.strftime('%Y-%m-%d'), "entry_date": str(nentry),
-                        "return_date": str(nret),
-                        "dispatch_agency": str(nagency), "document_status": str(ndoc), "remarks": str(nrem)
-                    })
-                    clear_caches();
-                    st.success("名簿情報を更新しました！");
+                if st.form_submit_button("💾 変更をすべて保存する"):
+                    if confirm_save:
+                        db.collection('foreign_workers').document(selected_id).update({
+                            "enrollment_status": str(n_enroll),
+                            "company_id": ncid,
+                            "name_kana": str(nkana),
+                            "nickname": str(nnick),
+                            "birthdate": str(nbirth),
+                            "gender": str(ngender),
+                            "nationality": str(nnat),
+                            "visa_status": str(nvisa),
+                            "visa_expiry": nv.strftime('%Y-%m-%d'),
+                            "residence_card_number": str(nrc_n),
+                            "residence_card_duration_months": str(nrc_dur),
+                            "passport_number": str(npass_n),
+                            "passport_expiration_date": np_exp.strftime('%Y-%m-%d'),
+                            "ssw1_start_date": str(nssw1_s),
+                            "ssw1_end_date": str(nssw1_e),
+                            "ssw2_start_date": str(nssw2_s),
+                            "entry_date": str(nentry),
+                            "hourly_wage": str(nwage_h),
+                            "daily_wage": str(nwage_d),
+                            "housing_cost": str(nhousing),
+                            "residence_address": str(nr),
+                            "dispatch_agency": str(nagency),
+                            "remarks": str(nrem)
+                        })
+                        clear_caches();
+                        st.success("名簿情報を更新しました！");
+                        st.rerun()
+                    else:
+                        st.error("※ 保存する場合は、「確認しました」のチェックを入れてからボタンを押してください。")
+
+        # 🌟 修正ポイント：人材データの完全削除機能（安全チェック付き）
+        st.markdown("---")
+        st.markdown("##### 🗑️ 人材データの削除")
+        with st.form(f"del_worker_form_{selected_id}"):
+            st.warning("この操作は取り消せません。削除する場合はチェックを入れてボタンを押してください。")
+            confirm_del = st.checkbox("本当にこの人材のデータをすべて削除することを確認しました", key=f"chk_del_{selected_id}")
+            if st.form_submit_button("🗑️ この人材を削除する"):
+                if confirm_del:
+                    db.collection('foreign_workers').document(selected_id).delete()
+                    clear_caches()
+                    st.success("人材データを削除しました。")
+                    time.sleep(1.5)
                     st.rerun()
+                else:
+                    st.error("※ 削除する場合は、確認のチェックを入れてください。")
 
 
 # ==========================================
-# 🏢 画面：会社情報（部分一致検索 ＆ 会社住所の編集に対応！）
+# 🏢 画面：会社情報
 # ==========================================
 def show_company_details():
     st.title("🏢 会社情報")
     if df_comp_all.empty: st.warning("会社が登録されていません。"); return
 
     df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
-
-    # 🌟 修正ポイント1: 会社名での部分一致検索欄を追加
     comp_search = st.text_input("🔍 会社名で検索（部分一致）", placeholder="例：青山", key="comp_details_page_search")
     if comp_search:
         df_c = df_c[df_c['company_name'].str.contains(comp_search, case=False, na=False)]
@@ -742,8 +817,20 @@ def show_company_details():
 
     with tab_info:
         with st.form("comp_edit_form"):
-            st.markdown("##### ⚙️ 各種設定・設定情報")
+            st.markdown("##### ⚙️ 会社基本情報・各種設定")
+
+            # 🌟 修正ポイント：会社情報への新規項目追加
             c1, c2 = st.columns(2)
+            with c1:
+                rep_name = st.text_input("代表者氏名", value=format_date(c_data.get('representative_name', '')))
+            with c2:
+                rep_kana = st.text_input("代表者氏名（カナ）", value=format_date(c_data.get('representative_name_kana', '')))
+
+            c_address = st.text_input("🏢 会社住所", value=format_date(c_data.get('address', '')))
+            industry = st.text_input("特定産業分野", value=format_date(c_data.get('specific_industry_field', '')))
+
+            st.markdown("---")
+            c3, c4 = st.columns(2)
 
             def safe_date_parse_comp(date_str):
                 if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー"]: return datetime.now().date()
@@ -755,25 +842,34 @@ def show_company_details():
                     except:
                         return datetime.now().date()
 
-            with c1:
-                # 🌟 修正ポイント2: 基本情報欄に「会社住所」の入力・編集欄を追加配置
-                c_address = st.text_input("🏢 会社住所", value=format_date(c_data.get('address', '')))
-                a36 = st.date_input("36協定 期限日（過ぎるとアラート）", safe_date_parse_comp(c_data.get('agreement_36_date')))
-                tr_d = st.date_input("講習日（6ヶ月前からアラート）", safe_date_parse_comp(c_data.get('training_date')))
+            with c3:
+                work_addr = st.text_input("実習場所住所", value=format_date(c_data.get('workplace_address', '')))
+                # 🌟 修正ポイント：「36協定起算日」に変更
+                a36_start = st.date_input("36協定 起算日（ここから1年経過でアラート）",
+                                          safe_date_parse_comp(c_data.get('agreement_36_start_date')))
 
-            with c2:
-                inst_mgr = st.text_input("指導責任者", value=format_date(c_data.get('instructor_manager', '')))
+            with c4:
+                work_tel = st.text_input("実習場所TEL", value=format_date(c_data.get('workplace_tel', '')))
                 wp_opts = ["未確認", "◯", "✖"]
                 wp_val = str(c_data.get('workplace_confirmed', '未確認'))
                 wp = st.selectbox("実習場所確認", wp_opts, index=wp_opts.index(wp_val) if wp_val in wp_opts else 0)
+
+            st.markdown("---")
+            c5, c6 = st.columns(2)
+            with c5:
+                inst_mgr = st.text_input("指導責任者", value=format_date(c_data.get('instructor_manager', '')))
+            with c6:
                 v_hours = st.text_area("変形労働 備考", value=format_date(c_data.get('variable_working_hours_remarks', '')))
 
             if st.form_submit_button("💾 会社情報を保存"):
-                # 🌟 「address」フィールドをFirestoreへ確実に保存更新
                 db.collection('companies').document(c_id).update({
+                    "representative_name": str(rep_name),
+                    "representative_name_kana": str(rep_kana),
                     "address": str(c_address),
-                    "agreement_36_date": a36.strftime('%Y-%m-%d'),
-                    "training_date": tr_d.strftime('%Y-%m-%d'),
+                    "specific_industry_field": str(industry),
+                    "workplace_address": str(work_addr),
+                    "workplace_tel": str(work_tel),
+                    "agreement_36_start_date": a36_start.strftime('%Y-%m-%d'),
                     "workplace_confirmed": wp,
                     "instructor_manager": str(inst_mgr),
                     "variable_working_hours_remarks": str(v_hours)
@@ -927,7 +1023,7 @@ def show_logs_manager():
 
 
 # ==========================================
-# ➕ 画面：新規登録
+# ➕ 画面：新規登録（二重登録・誤操作防止機能搭載）
 # ==========================================
 def show_add_new():
     st.title("➕ 新規登録")
@@ -936,34 +1032,55 @@ def show_add_new():
         with st.form("c"):
             cn = st.text_input("会社名")
             ca = st.selectbox("地域", ["近畿", "関東", "東海", "静岡", "九州", "中四国", "北信越", "北海道・東北"])
-            # 🌟 修正ポイント3: 会社追加の初期登録時にも「会社住所」を一気に登録できるように拡張
             c_addr_new = st.text_input("🏢 会社住所", placeholder="例：大阪府大阪市...")
 
-            if st.form_submit_button("登録") and cn:
-                db.collection('companies').add({
-                    "company_name": str(cn),
-                    "area": str(ca),
-                    "address": str(c_addr_new),
-                    "created_at": firestore.SERVER_TIMESTAMP
-                })
-                clear_caches();
-                st.success("登録完了");
-                st.rerun()
+            # 🌟 修正ポイント：確認チェックボックスの追加
+            confirm_new_c = st.checkbox("二重登録ではないことを確認しました", key="chk_new_c")
+            if st.form_submit_button("登録"):
+                if cn and confirm_new_c:
+                    db.collection('companies').add({
+                        "company_name": str(cn),
+                        "area": str(ca),
+                        "address": str(c_addr_new),
+                        "created_at": firestore.SERVER_TIMESTAMP
+                    })
+                    clear_caches();
+                    st.success("会社の登録が完了しました！");
+                    time.sleep(1);
+                    st.rerun()
+                elif not confirm_new_c:
+                    st.error("※ 登録する場合は、「確認しました」のチェックを入れてください。")
+                else:
+                    st.error("会社名を入力してください。")
+
     with t2:
         if not df_comp_all.empty:
             df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
             with st.form("w"):
-                comp = str(st.selectbox("所属", df_c['id'].tolist(),
+                comp = str(st.selectbox("所属会社", df_c['id'].tolist(),
                                         format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0]))
-                name = st.text_input("氏名")
-                visa = st.selectbox("資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
-                if st.form_submit_button("登録") and name:
-                    db.collection('foreign_workers').add(
-                        {"company_id": comp, "name_en": str(name), "visa_status": str(visa), "is_away": 0,
-                         "document_status": "本人所持", "created_at": firestore.SERVER_TIMESTAMP})
-                    clear_caches();
-                    st.success("登録完了");
-                    st.rerun()
+                name = st.text_input("氏名（ローマ字等）")
+                visa = st.selectbox("在留資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
+
+                # 🌟 修正ポイント：確認チェックボックスの追加
+                confirm_new_w = st.checkbox("二重登録ではないことを確認しました", key="chk_new_w")
+                if st.form_submit_button("登録"):
+                    if name and confirm_new_w:
+                        db.collection('foreign_workers').add({
+                            "company_id": comp,
+                            "name_en": str(name),
+                            "visa_status": str(visa),
+                            "enrollment_status": "在籍中",  # 新規登録は自動的に在籍中にする
+                            "created_at": firestore.SERVER_TIMESTAMP
+                        })
+                        clear_caches();
+                        st.success("人材の登録が完了しました！");
+                        time.sleep(1);
+                        st.rerun()
+                    elif not confirm_new_w:
+                        st.error("※ 登録する場合は、「確認しました」のチェックを入れてください。")
+                    else:
+                        st.error("氏名を入力してください。")
 
 
 # ==========================================
