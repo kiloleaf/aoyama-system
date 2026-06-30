@@ -319,9 +319,9 @@ def show_dashboard():
                 if a36_start_str and a36_start_str not in ["nan", "ー", "None", "", "該当なし"]:
                     try:
                         start_date = datetime.strptime(a36_start_str, '%Y-%m-%d').date()
-                        if today >= start_date + timedelta(days=365):
-                            c_alerts.append({"会社名": c['company_name'], "種類": "36協定 期限切れ",
-                                             "日付": str(start_date + timedelta(days=365))})
+                        limit_date = start_date + timedelta(days=365)  # 起算日から1年後
+                        if today >= limit_date:
+                            c_alerts.append({"会社名": c['company_name'], "種類": "36協定 期限切れ", "日付": str(limit_date)})
                     except:
                         pass
 
@@ -330,7 +330,8 @@ def show_dashboard():
                 if sup_tr_str and sup_tr_str not in ["nan", "ー", "None", "", "該当なし"]:
                     try:
                         sup_tr_date = datetime.strptime(sup_tr_str, '%Y-%m-%d').date()
-                        if today >= sup_tr_date + timedelta(days=913):
+                        limit_2_5y = sup_tr_date + timedelta(days=913)  # 2.5年後(約913日)
+                        if today >= limit_2_5y:
                             c_alerts.append({"会社名": c['company_name'], "種類": "責任者講習から2.5年経過", "日付": sup_tr_str})
                     except:
                         pass
@@ -350,9 +351,7 @@ def show_calendar():
     cal_filter = st.radio("表示フィルター", ["すべて表示", "タスクのみ表示", "走行距離のみ表示"], horizontal=True)
     st.divider()
 
-    if 'cal_current_date' not in st.session_state:
-        st.session_state.cal_current_date = datetime.now().date()
-
+    if 'cal_current_date' not in st.session_state: st.session_state.cal_current_date = datetime.now().date()
     df_tasks = fetch_all_cached("events_logs")
     df_workers = fetch_all_cached("foreign_workers")
     df_mileage = fetch_all_cached("mileage_logs")
@@ -361,23 +360,10 @@ def show_calendar():
         df_tasks = pd.merge(df_tasks, df_workers[['id', 'name_en', 'company_id']], left_on='worker_id', right_on='id',
                             how='left', suffixes=('', '_w'))
         df_tasks['company_id'] = df_tasks.get('company_id_w', df_tasks.get('company_id'))
-
     if not df_tasks.empty:
-        if 'name_en' not in df_tasks.columns:
-            df_tasks['name_en'] = '一般'
-        else:
-            df_tasks['name_en'] = df_tasks['name_en'].fillna('一般')
-
-        if 'status' not in df_tasks.columns:
-            df_tasks['status'] = '未完了'
-        else:
-            df_tasks['status'] = df_tasks['status'].fillna('未完了')
-
-        if 'category' not in df_tasks.columns:
-            df_tasks['category'] = '一般業務'
-        else:
-            df_tasks['category'] = df_tasks['category'].fillna('一般業務')
-
+        df_tasks['name_en'] = df_tasks.get('name_en', pd.Series(dtype=str)).fillna('一般')
+        df_tasks['status'] = df_tasks.get('status', '未完了').fillna('未完了')
+        df_tasks['category'] = df_tasks.get('category', '一般業務').fillna('一般業務')
         df_tasks = df_tasks[(df_tasks['company_id'].isin(valid_company_ids)) | (df_tasks['worker_id'] == '0')]
 
     col_cal, col_panel = st.columns([7, 3])
@@ -392,8 +378,7 @@ def show_calendar():
         calendar.setfirstweekday(calendar.SUNDAY)
 
         week_cols = st.columns(7)
-        for i, d in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
-            week_cols[i].write(f"**{d}**")
+        for i, d in enumerate(["日", "月", "火", "水", "木", "金", "土"]): week_cols[i].write(f"**{d}**")
 
         for week in calendar.monthcalendar(y, m):
             cols = st.columns(7)
@@ -402,12 +387,10 @@ def show_calendar():
                     if day != 0:
                         d_date = datetime(y, m, day).date()
                         d_str = d_date.strftime("%Y-%m-%d")
-
                         is_today = (d_date == datetime.now().date())
                         bg_style = "background-color: #1c3322; border: 2px solid #2ea44f;" if is_today else ""
                         color = '#ff8a8a' if jp_holidays.get(d_date) or i == 0 else '#8ab4ff' if i == 6 else '#ffffff'
                         html = f"<div class='cal-day-header' style='color:{color};'>{'📍 今日 ' if is_today else ''}{day}</div>"
-
                         tasks_html = ""
                         if cal_filter in ["すべて表示", "タスクのみ表示"]:
                             if not df_tasks.empty:
@@ -416,14 +399,12 @@ def show_calendar():
                                     if str(t['worker_id']) == '0': base_class += " task-general"
                                     cat_icon = "🛫" if t['category'] == "帰国手続き" else "🏢" if t[
                                                                                                  'category'] == "入管手続き" else "☑" if \
-                                        t['status'] == '完了' else "▢"
+                                    t['status'] == '完了' else "▢"
                                     tasks_html += f"<div class='{base_class}'>{cat_icon} {str(t['name_en'])[:4]}: {t['task_name']}</div>"
-
                         if cal_filter in ["すべて表示", "走行距離のみ表示"]:
                             if not df_mileage.empty and 'record_date' in df_mileage.columns:
                                 for _, m_row in df_mileage[df_mileage['record_date'] == d_str].iterrows():
                                     tasks_html += f"<div class='task-item task-mileage'>🚗 {m_row.get('driven_km', 0)}km ({str(m_row.get('driver_name', '')).replace('青山（', '').replace('）', '')})</div>"
-
                         st.markdown(f'<div class="cal-cell" style="{bg_style}">{html}{tasks_html}</div>',
                                     unsafe_allow_html=True)
                     else:
@@ -436,7 +417,6 @@ def show_calendar():
         target_str = target_date_obj.strftime("%Y-%m-%d")
         st.divider()
         st.markdown(f"**【{target_str} の予定】**")
-
         has_plan = False
         if not df_tasks.empty:
             for _, t in df_tasks[df_tasks['event_date'] == target_str].iterrows():
@@ -454,7 +434,6 @@ def show_calendar():
                     clear_caches();
                     st.rerun()
                 st.write("---")
-
         if not df_mileage.empty and 'record_date' in df_mileage.columns:
             for _, m_row in df_mileage[df_mileage['record_date'] == target_str].iterrows():
                 has_plan = True
@@ -465,10 +444,8 @@ def show_calendar():
                     clear_caches();
                     st.rerun()
                 st.write("---")
-
         if not has_plan: st.caption("予定はありません")
         st.divider()
-
         st.markdown("**➕ 新規追加**")
         with st.expander("👤 外国人材タスクを追加"):
             df_w = fetch_all_cached("foreign_workers")
@@ -482,21 +459,17 @@ def show_calendar():
                     s_w = st.selectbox("対象者", df_sub['id_x'].tolist(),
                                        format_func=lambda x: df_sub[df_sub['id_x'] == x]['name_en'].values[0],
                                        key="add_w_w")
-
                     mode = st.radio("追加方法", ["単発", "テンプレート"], horizontal=True, key="add_w_m")
                     if mode == "単発":
                         task_cat = st.selectbox("タスクカテゴリ", ["一般業務", "帰国手続き", "入管手続き"], key="add_w_cat")
                         tn = st.text_input("タスク名", key="add_w_t")
                         if st.button("追加", key="btn_add_w"):
-                            db.collection('events_logs').add({
-                                "worker_id": str(s_w), "task_name": str(tn), "category": str(task_cat),
-                                "event_date": target_str, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP
-                            })
-                            db.collection('worker_logs').add({
-                                "worker_id": str(s_w), "log_date": target_str,
-                                "log_content": f"【タスク登録/{task_cat}】{str(tn)}",
-                                "created_at": firestore.SERVER_TIMESTAMP
-                            })
+                            db.collection('events_logs').add(
+                                {"worker_id": str(s_w), "task_name": str(tn), "category": str(task_cat),
+                                 "event_date": target_str, "status": "未完了", "created_at": firestore.SERVER_TIMESTAMP})
+                            db.collection('worker_logs').add({"worker_id": str(s_w), "log_date": target_str,
+                                                              "log_content": f"【タスク登録/{task_cat}】{str(tn)}",
+                                                              "created_at": firestore.SERVER_TIMESTAMP})
                             clear_caches();
                             st.rerun()
                     else:
@@ -520,7 +493,6 @@ def show_calendar():
                                     })
                                 clear_caches();
                                 st.rerun()
-
         with st.expander("🏢 一般・会社タスクを追加"):
             if not df_comp_all.empty:
                 df_c_sub = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
@@ -530,18 +502,15 @@ def show_calendar():
                 tn_gen = st.text_input("タスク名", key="add_g_t")
                 if st.button("追加", key="btn_add_g"):
                     t_name = f"[{c_names[c_opts.index(s_c_gen)]}] {str(tn_gen)}" if s_c_gen != '0' else str(tn_gen)
-                    db.collection('events_logs').add({
-                        "worker_id": "0", "company_id": None if s_c_gen == '0' else str(s_c_gen), "task_name": t_name,
-                        "category": "一般業務", "event_date": target_str, "status": "未完了",
-                        "created_at": firestore.SERVER_TIMESTAMP
-                    })
-                    if s_c_gen != '0':
-                        db.collection('company_logs').add(
-                            {"company_id": str(s_c_gen), "log_date": target_str, "log_category": "一般",
-                             "log_content": f"【タスク登録】{str(tn_gen)}", "created_at": firestore.SERVER_TIMESTAMP})
+                    db.collection('events_logs').add(
+                        {"worker_id": "0", "company_id": None if s_c_gen == '0' else str(s_c_gen), "task_name": t_name,
+                         "category": "一般業務", "event_date": target_str, "status": "未完了",
+                         "created_at": firestore.SERVER_TIMESTAMP})
+                    if s_c_gen != '0': db.collection('company_logs').add(
+                        {"company_id": str(s_c_gen), "log_date": target_str, "log_category": "一般",
+                         "log_content": f"【タスク登録】{str(tn_gen)}", "created_at": firestore.SERVER_TIMESTAMP})
                     clear_caches();
                     st.rerun()
-
         with st.expander("🚗 走行距離を記録"):
             dr_direct = st.selectbox("運転者", ["青山（妻）", "青山（夫）", "スタッフ"], key="add_m_dr")
             dist = st.number_input("距離 (km)", value=0, min_value=0, step=1, key="add_m_d")
@@ -570,31 +539,22 @@ def show_worker_list():
     st.title("👥 人材名簿")
     df_w = fetch_all_cached("foreign_workers")
     df_all_logs = fetch_all_cached("worker_logs")
-
     if df_w.empty or df_comp_all.empty: st.info("データがありません"); return
-
     df_w = df_w[df_w['company_id'].isin(valid_company_ids)]
     df = pd.merge(df_w, df_comp_all[['id', 'company_name', 'address']], left_on='company_id', right_on='id',
                   how='left').rename(columns={'address': 'comp_address', 'id_x': 'id'})
     df['visa_order'] = df['visa_status'].map(
         {'技能実習1号': 1, '技能実習2号': 2, '技能実習3号': 3, '特定活動': 4, '特定技能1号': 5, '特定技能2号': 6}).fillna(7)
-
-    if 'enrollment_status' not in df.columns:
-        df['enrollment_status'] = '在籍中'
-    else:
-        df['enrollment_status'] = df['enrollment_status'].fillna('在籍中')
-
+    df['enrollment_status'] = df.get('enrollment_status', '在籍中').fillna('在籍中')
     df = df.sort_values(by=['company_name', 'visa_order', 'entry_date'], ascending=[True, True, True])
 
     st.markdown("### 🔍 対象者の絞り込み・検索")
     enroll_filter = st.radio("表示する在籍状況", ["在籍中", "非在籍中", "すべて表示"], horizontal=True)
-    if enroll_filter != "すべて表示":
-        df = df[df['enrollment_status'] == enroll_filter]
+    if enroll_filter != "すべて表示": df = df[df['enrollment_status'] == enroll_filter]
 
     c1, c2 = st.columns(2)
     comp_search = c1.text_input("🏢 会社名で検索（部分一致）")
     name_search = c2.text_input("👤 名前で検索（部分一致）")
-
     if comp_search: df = df[df['company_name'].str.contains(comp_search, case=False, na=False)]
     if name_search: df = df[df['name_en'].str.contains(name_search, case=False, na=False)]
     if df.empty: st.warning("該当者なし"); return
@@ -604,12 +564,10 @@ def show_worker_list():
         lambda r: f"[{r['company_name']}] {r['name_en']} ({r['visa_status']} / 入国日：{format_date(r.get('entry_date'))})",
         axis=1).tolist()
     selected_label = st.selectbox("👇 リストから対象者を選択してください", worker_options)
-
     selected_id = str(df['id'].tolist()[worker_options.index(selected_label)])
     w = df[df['id'] == selected_id].iloc[0]
 
     st.markdown(f"## 👤 {w['name_en']} さんの詳細データ")
-
     tab_info, tab_log, tab_files, tab_edit = st.tabs(["📋 基本情報", "📝 ログ・履歴", "📁 書類管理", "✏️ 登録情報の編集"])
 
     with tab_info:
@@ -620,14 +578,12 @@ def show_worker_list():
                 st.image(img_val, use_container_width=True)
             else:
                 st.info("📷 未登録")
-
             if w.get('enrollment_status') == '非在籍中':
                 st.error("非在籍（退職等）")
             else:
                 st.success("在籍中")
-
         col_p.markdown(
-            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
+            f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}</div>",
             unsafe_allow_html=True)
         col_v.markdown(
             f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{format_date(w.get('visa_status'))}<br><br><b>在留カード期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期間(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
@@ -653,7 +609,6 @@ def show_worker_list():
                      "created_at": firestore.SERVER_TIMESTAMP})
                 clear_caches();
                 st.rerun()
-
         for _, l in log_df.iterrows():
             with st.expander(f"📅 {l['log_date']} ： {l.get('log_content', '')}"):
                 with st.form(f"edit_w_log_{l['id']}"):
@@ -708,7 +663,6 @@ def show_worker_list():
                         time.sleep(1);
                         st.session_state.uploader_key = str(time.time());
                         st.rerun()
-
             current_photo = str(w.get('photo_path', ''))
             if current_photo.startswith('http'):
                 st.markdown("---")
@@ -719,15 +673,13 @@ def show_worker_list():
                     st.success("写真を削除しました！");
                     time.sleep(1);
                     st.rerun()
-
         with col_edit_form:
-            with st.form(f"edit_worker_info_form_{selected_id}"):
+            with st.form("edit_worker_info_form"):
                 n_enroll = st.selectbox("在籍状況", ["在籍中", "非在籍中"],
                                         index=0 if w.get('enrollment_status', '在籍中') == '在籍中' else 1)
                 nc = st.selectbox("所属会社（移籍）", df_comp_all['company_name'].tolist(),
                                   index=df_comp_all['company_name'].tolist().index(w['company_name']))
                 ncid = str(df_comp_all[df_comp_all['company_name'] == nc]['id'].values[0])
-
                 st.markdown("---")
                 e1, e2 = st.columns(2)
                 with e1:
@@ -738,41 +690,30 @@ def show_worker_list():
                     nnick = st.text_input("ニックネーム", value=format_date(w.get('nickname', '')))
                     ngender = st.text_input("性別", value=format_date(w.get('gender', '')))
                     nentry = st.text_input("入国日", value=format_date(w.get('entry_date', '')))
-
                 st.markdown("---")
                 e3, e4 = st.columns(2)
                 with e3:
-                    nvisa = st.selectbox("在留資格",
-                                         ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"],
-                                         index=["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動",
-                                                "その他"].index(w.get('visa_status', '技能実習1号')) if w.get('visa_status',
-                                                                                                      '技能実習1号') in [
-                                                                                                    "技能実習1号",
-                                                                                                    "技能実習2号",
-                                                                                                    "技能実習3号",
-                                                                                                    "特定技能1号",
-                                                                                                    "特定技能2号",
-                                                                                                    "特定活動",
-                                                                                                    "その他"] else 0)
+                    nvisa = st.selectbox("在留資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"],
+                                         index=["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"].index(
+                                             w.get('visa_status', '技能実習1号')) if w.get('visa_status', '技能実習1号') in [
+                                             "技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"] else 0)
                     nrc_n = st.text_input("在留カード番号", value=format_date(w.get('residence_card_number', '')))
                     npass_n = st.text_input("パスポート番号", value=format_date(w.get('passport_number', '')))
                 with e4:
                     def safe_date_parse(date_str):
-                        if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None",
-                                                                          "ー"]: return datetime.now().date()
+                        if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー"]: return None
                         try:
                             return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
                         except:
                             try:
                                 return datetime.strptime(str(date_str).strip()[:10], '%Y/%m/%d').date()
                             except:
-                                return datetime.now().date()
+                                return None
 
                     nv = st.date_input("在留カード期限", safe_date_parse(w.get('visa_expiry', '')))
                     nrc_dur = st.text_input("在留カード期間（月単位、例:18ヶ月）",
                                             value=format_date(w.get('residence_card_duration_months', '')))
                     np_exp = st.date_input("パスポート期限", safe_date_parse(w.get('passport_expiration_date', '')))
-
                 st.markdown("---")
                 e5, e6 = st.columns(2)
                 with e5:
@@ -783,7 +724,6 @@ def show_worker_list():
                 with e6:
                     nssw1_e = st.text_input("特定技能1号終了日 (手入力 例:2024/12/31)",
                                             value=format_date(w.get('ssw1_end_date', '')))
-
                 st.markdown("---")
                 e7, e8 = st.columns(2)
                 with e7:
@@ -795,44 +735,30 @@ def show_worker_list():
                     nwage_d = st.text_input("日給 (円)", value=format_currency(w.get('daily_wage', '')))
                     nhousing = st.text_input("居住費", value=format_currency(w.get('housing_cost', '')))
                     nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
-
                 st.markdown("---")
                 confirm_save = st.checkbox("上記の内容で保存（上書き）することを確認しました", key=f"chk_save_{selected_id}")
-
                 if st.form_submit_button("💾 変更をすべて保存する"):
                     if confirm_save:
                         db.collection('foreign_workers').document(selected_id).update({
                             "enrollment_status": str(n_enroll),
-                            "company_id": ncid,
-                            "name_kana": str(nkana),
-                            "nickname": str(nnick),
-                            "birthdate": str(nbirth),
-                            "gender": str(ngender),
-                            "nationality": str(nnat),
-                            "visa_status": str(nvisa),
-                            "visa_expiry": nv.strftime('%Y-%m-%d'),
-                            "residence_card_number": str(nrc_n),
-                            "residence_card_duration_months": str(nrc_dur),
+                            "company_id": ncid, "name_kana": str(nkana), "nickname": str(nnick),
+                            "birthdate": str(nbirth), "gender": str(ngender), "nationality": str(nnat),
+                            "visa_status": str(nvisa), "visa_expiry": nv.strftime('%Y-%m-%d') if nv else "該当なし",
+                            "residence_card_number": str(nrc_n), "residence_card_duration_months": str(nrc_dur),
                             "passport_number": str(npass_n),
-                            "passport_expiration_date": np_exp.strftime('%Y-%m-%d'),
-                            "ssw1_start_date": str(nssw1_s),
-                            "ssw1_end_date": str(nssw1_e),
+                            "passport_expiration_date": np_exp.strftime('%Y-%m-%d') if np_exp else "該当なし",
+                            "ssw1_start_date": str(nssw1_s), "ssw1_end_date": str(nssw1_e),
                             "ssw2_start_date": str(nssw2_s),
-                            "entry_date": str(nentry),
-                            "hourly_wage": format_currency(nwage_h),
-                            "daily_wage": format_currency(nwage_d),
-                            "monthly_wage": format_currency(nwage_m),
-                            "housing_cost": format_currency(nhousing),
-                            "residence_address": str(nr),
-                            "dispatch_agency": str(nagency),
-                            "remarks": str(nrem)
+                            "entry_date": str(nentry), "hourly_wage": format_currency(nwage_h),
+                            "daily_wage": format_currency(nwage_d), "monthly_wage": format_currency(nwage_m),
+                            "housing_cost": format_currency(nhousing), "residence_address": str(nr),
+                            "dispatch_agency": str(nagency), "remarks": str(nrem)
                         })
                         clear_caches();
                         st.success("名簿情報を更新しました！");
                         st.rerun()
                     else:
                         st.error("※ 保存する場合は、「確認しました」のチェックを入れてからボタンを押してください。")
-
         st.markdown("---")
         st.markdown("##### 🗑️ 人材データの削除")
         with st.form(f"del_worker_form_{selected_id}"):
@@ -841,9 +767,9 @@ def show_worker_list():
             if st.form_submit_button("🗑️ この人材を削除する"):
                 if confirm_del:
                     db.collection('foreign_workers').document(selected_id).delete()
-                    clear_caches()
-                    st.success("人材データを削除しました。")
-                    time.sleep(1.5)
+                    clear_caches();
+                    st.success("人材データを削除しました。");
+                    time.sleep(1.5);
                     st.rerun()
                 else:
                     st.error("※ 削除する場合は、確認のチェックを入れてください。")
@@ -858,15 +784,13 @@ def show_company_details():
 
     df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
     comp_search = st.text_input("🔍 会社名で検索（部分一致）", placeholder="例：青山", key="comp_details_page_search")
-    if comp_search:
-        df_c = df_c[df_c['company_name'].str.contains(comp_search, case=False, na=False)]
+    if comp_search: df_c = df_c[df_c['company_name'].str.contains(comp_search, case=False, na=False)]
 
     if df_c.empty:
         st.warning("該当する会社がありません。検索条件を変えてみてください。")
         return
 
     c_name = st.selectbox("対象の会社を選択してください", df_c['company_name'].tolist())
-
     c_data = df_c[df_c['company_name'] == c_name].iloc[0]
     c_id = str(c_data['id'])
 
@@ -875,14 +799,11 @@ def show_company_details():
     with tab_info:
         with st.form("comp_edit_form"):
             st.markdown("##### ⚙️ 会社基本情報・各種設定")
-
             c1, c2 = st.columns(2)
             with c1:
                 rep_name = st.text_input("代表者氏名", value=format_date(c_data.get('representative_name', '')))
             with c2:
-                rep_kana = st.text_input("代表者氏名（カナ）",
-                                         value=format_date(c_data.get('representative_name_kana', '')))
-
+                rep_kana = st.text_input("代表者氏名（カナ）", value=format_date(c_data.get('representative_name_kana', '')))
             c_address = st.text_input("🏢 会社住所", value=format_date(c_data.get('address', '')))
             industry = st.text_input("技能実習職種・特定産業分野", value=format_date(c_data.get('specific_industry_field', '')))
 
@@ -890,31 +811,26 @@ def show_company_details():
             c3, c4 = st.columns(2)
 
             def safe_date_parse_comp(date_str):
-                if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー",
-                                                                  "該当なし"]: return datetime.now().date()
+                if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー", "該当なし"]: return None
                 try:
                     return datetime.strptime(str(date_str).strip()[:10], '%Y-%m-%d').date()
                 except:
                     try:
                         return datetime.strptime(str(date_str).strip()[:10], '%Y/%m/%d').date()
                     except:
-                        return datetime.now().date()
+                        return None
 
             with c3:
                 work_addr = st.text_input("実習場所住所", value=format_date(c_data.get('workplace_address', '')))
 
-                # 🌟 修正ポイント：36協定起算日も「該当なし」のチェックボックスを追加
+                # 🌟 修正ポイント：カレンダー自体からチェックボックスを全廃し、直接空欄（None）選択をサポート
                 a36_start_val = c_data.get('agreement_36_start_date', '該当なし')
-                is_a36_enabled = str(a36_start_val) not in ["該当なし", "", "None"]
-                a36_checked = st.checkbox("36協定 起算日を登録する", value=is_a36_enabled)
-                a36_start = st.date_input("36協定 起算日（ここから1年経過でアラート）", safe_date_parse_comp(
-                    a36_start_val) if is_a36_enabled else datetime.now()) if a36_checked else "該当なし"
+                a36_start = st.date_input("36協定 起算日（空欄可、1年経過でアラート）", safe_date_parse_comp(a36_start_val),
+                                          value=safe_date_parse_comp(a36_start_val))
 
                 sup_tr_val = c_data.get('supervisor_training_date', '該当なし')
-                is_sup_enabled = str(sup_tr_val) not in ["該当なし", "", "None"]
-                sup_tr_checked = st.checkbox("技能実習責任者講習日を登録する", value=is_sup_enabled)
-                sup_tr = st.date_input("技能実習責任者講習日（ここから2.5年経過でアラート）", safe_date_parse_comp(
-                    sup_tr_val) if is_sup_enabled else datetime.now()) if sup_tr_checked else "該当なし"
+                sup_tr = st.date_input("技能実習責任者講習日（空欄可、2.5年経過でアラート）", safe_date_parse_comp(sup_tr_val),
+                                       value=safe_date_parse_comp(sup_tr_val))
 
             with c4:
                 work_tel = st.text_input("実習場所TEL", value=format_date(c_data.get('workplace_tel', '')))
@@ -923,7 +839,7 @@ def show_company_details():
                 wp = st.selectbox("実習場所確認", wp_opts, index=wp_opts.index(wp_val) if wp_val in wp_opts else 0)
 
             st.markdown("---")
-            # 🌟 修正ポイント：「技能実習指導員」「生活指導員」の入力欄を追加
+            # 🌟 修正ポイント：「技能実習指導員」「生活指導員」の入力フィールド・ラベルを構造的に追加
             st.markdown("##### 👥 責任者・指導員情報")
             c5, c6 = st.columns(2)
             with c5:
@@ -934,29 +850,23 @@ def show_company_details():
                 v_hours = st.text_area("変形労働 備考", value=format_date(c_data.get('variable_working_hours_remarks', '')))
 
             st.markdown("---")
-            confirm_save_comp = st.checkbox("上記の内容で保存（上書き）することを確認しました", key=f"chk_save_comp_{c_id}")
+            # 🌟 修正ポイント：保存前にうっかり上書きするミスを防ぐ「確認シールド」を設置
+            confirm_save_comp = st.checkbox("上記の内容で会社情報を保存（上書き）することを確認しました", key=f"chk_save_comp_{c_id}")
 
             if st.form_submit_button("💾 会社情報を保存"):
                 if confirm_save_comp:
                     db.collection('companies').document(c_id).update({
-                        "representative_name": str(rep_name),
-                        "representative_name_kana": str(rep_kana),
-                        "address": str(c_address),
-                        "specific_industry_field": str(industry),
-                        "workplace_address": str(work_addr),
-                        "workplace_tel": str(work_tel),
-                        "agreement_36_start_date": a36_start.strftime('%Y-%m-%d') if isinstance(a36_start,
-                                                                                                datetime) else "該当なし",
-                        "supervisor_training_date": sup_tr.strftime('%Y-%m-%d') if isinstance(sup_tr,
-                                                                                              datetime) else "該当なし",
-                        "workplace_confirmed": wp,
-                        "instructor_manager": str(inst_mgr),
-                        "technical_instructor": str(tech_inst),
-                        "life_instructor": str(life_inst),
+                        "representative_name": str(rep_name), "representative_name_kana": str(rep_kana),
+                        "address": str(c_address), "specific_industry_field": str(industry),
+                        "workplace_address": str(work_addr), "workplace_tel": str(work_tel),
+                        "agreement_36_start_date": a36_start.strftime('%Y-%m-%d') if a36_start else "該当なし",
+                        "supervisor_training_date": sup_tr.strftime('%Y-%m-%d') if sup_tr else "該当なし",
+                        "workplace_confirmed": wp, "instructor_manager": str(inst_mgr),
+                        "technical_instructor": str(tech_inst), "life_instructor": str(life_inst),
                         "variable_working_hours_remarks": str(v_hours)
                     })
                     clear_caches();
-                    st.success("保存しました！");
+                    st.success("会社情報を保存しました！");
                     st.rerun()
                 else:
                     st.error("※ 保存する場合は、「確認しました」のチェックを入れてからボタンを押してください。")
@@ -1044,8 +954,6 @@ def show_logs_manager():
                                     st.rerun()
                 else:
                     st.write("該当するログはありません。")
-        else:
-            st.write("登録されている会社がありません。")
     with t2:
         df_w = fetch_all_cached("foreign_workers")
         if not df_w.empty and not df_comp_all.empty:
@@ -1096,6 +1004,7 @@ def show_add_new():
             cn = st.text_input("会社名")
             ca = st.selectbox("地域", ["近畿", "関東", "東海", "静岡", "九州", "中四国", "北信越", "北海道・東北"])
             c_addr_new = st.text_input("🏢 会社住所", placeholder="例：大阪府大阪市...")
+
             confirm_new_c = st.checkbox("二重登録ではないことを確認しました", key="chk_new_c")
             if st.form_submit_button("登録"):
                 if cn and confirm_new_c:
@@ -1103,7 +1012,8 @@ def show_add_new():
                         {"company_name": str(cn), "area": str(ca), "address": str(c_addr_new),
                          "created_at": firestore.SERVER_TIMESTAMP})
                     clear_caches();
-                    st.success("登録完了");
+                    st.success("会社の登録が完了しました！");
+                    time.sleep(1);
                     st.rerun()
                 elif not confirm_new_c:
                     st.error("※ 確認チェックを入れてください。")
@@ -1113,10 +1023,11 @@ def show_add_new():
         if not df_comp_all.empty:
             df_c = df_comp_all[df_comp_all['id'].isin(valid_company_ids)]
             with st.form("w"):
-                comp = str(st.selectbox("所属", df_c['id'].tolist(),
+                comp = str(st.selectbox("所属会社", df_c['id'].tolist(),
                                         format_func=lambda x: df_c[df_c['id'] == x]['company_name'].values[0]))
-                name = st.text_input("氏名")
-                visa = st.selectbox("資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
+                name = st.text_input("氏名（ローマ字等）")
+                visa = st.selectbox("在留資格", ["技能実習1号", "技能実習2号", "技能実習3号", "特定技能1号", "特定技能2号", "特定活動", "その他"])
+
                 confirm_new_w = st.checkbox("二重登録ではないことを確認しました", key="chk_new_w")
                 if st.form_submit_button("登録"):
                     if name and confirm_new_w:
@@ -1124,7 +1035,8 @@ def show_add_new():
                             {"company_id": comp, "name_en": str(name), "visa_status": str(visa),
                              "enrollment_status": "在籍中", "created_at": firestore.SERVER_TIMESTAMP})
                         clear_caches();
-                        st.success("登録完了");
+                        st.success("人材の登録が完了しました！");
+                        time.sleep(1);
                         st.rerun()
                     elif not confirm_new_w:
                         st.error("※ 確認チェックを入れてください。")
@@ -1143,6 +1055,7 @@ def show_tpl_set():
             db.collection('task_templates').add({"template_name": str(tn), "created_at": firestore.SERVER_TIMESTAMP})
             clear_caches();
             st.rerun()
+
     df_t = fetch_all_cached("task_templates")
     if not df_t.empty:
         stn = st.selectbox("編集するテンプレート", df_t['id'].tolist(),
