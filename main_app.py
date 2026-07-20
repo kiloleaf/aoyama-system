@@ -264,13 +264,15 @@ def show_dashboard():
                 try:
                     p_d = datetime.strptime(str(r.get('passport_expiration_date', '')), '%Y-%m-%d').date()
                     if today <= p_d <= limit_5m: w_alerts.append(
-                        {"氏名": r.get('name_en', ''), "種類": "パスポート(5ヶ月以内)", "日付": str(p_d)})
+                        # 👇 会社名を追加しました
+                        {"会社名": r.get('company_name', ''), "氏名": r.get('name_en', ''), "種類": "パスポート(5ヶ月以内)", "日付": str(p_d)})
                 except:
                     pass
                 try:
                     v_d = datetime.strptime(str(r.get('visa_expiry', '')), '%Y-%m-%d').date()
                     if today <= v_d <= limit_5m: w_alerts.append(
-                        {"氏名": r.get('name_en', ''), "種類": "在留カード期限(5ヶ月以内)", "日付": str(v_d)})
+                        # 👇 会社名を追加しました
+                        {"会社名": r.get('company_name', ''), "氏名": r.get('name_en', ''), "種類": "在留カード期限(5ヶ月以内)", "日付": str(v_d)})
                 except:
                     pass
                 try:
@@ -278,7 +280,8 @@ def show_dashboard():
                     if today <= ret_d <= limit_14d:
                         doc_stat = str(r.get('document_status', ''))
                         if doc_stat not in ["本人所持", "本人保持"]: w_alerts.append(
-                            {"氏名": r.get('name_en', ''), "種類": "🚨帰国間近(書類本人未所持)", "日付": str(ret_d)})
+                            # 👇 会社名を追加しました
+                            {"会社名": r.get('company_name', ''), "氏名": r.get('name_en', ''), "種類": "🚨帰国間近(書類本人未所持)", "日付": str(ret_d)})
                 except:
                     pass
         if w_alerts:
