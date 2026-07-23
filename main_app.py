@@ -784,13 +784,14 @@ def show_company_details():
                 rep_name = st.text_input("代表者氏名", value=format_date(c_data.get('representative_name', '')))
             with c2:
                 rep_kana = st.text_input("代表者氏名（カナ）", value=format_date(c_data.get('representative_name_kana', '')))
+
             c_address = st.text_input("🏢 会社住所", value=format_date(c_data.get('address', '')))
+            company_tel = st.text_input("📞 会社TEL", value=format_date(c_data.get('company_tel', '')))
             industry = st.text_input("技能実習職種・特定産業分野", value=format_date(c_data.get('specific_industry_field', '')))
 
             st.markdown("---")
             c3, c4 = st.columns(2)
 
-            # 🌟 修正ポイント：直接None（空欄）を許容する安全なパース関数
             def safe_date_parse_comp(date_str):
                 if pd.isna(date_str) or str(date_str).strip() in ["", "nan", "None", "ー", "該当なし"]: return None
                 try:
@@ -803,8 +804,6 @@ def show_company_details():
 
             with c3:
                 work_addr = st.text_input("実習場所住所", value=format_date(c_data.get('workplace_address', '')))
-
-                # 🌟 修正ポイント：チェックボックスを撤廃し、直接空欄入力を許容する仕様へ変更
                 a36_start = st.date_input("36協定 起算日（空欄可、1年経過でアラート）",
                                           value=safe_date_parse_comp(c_data.get('agreement_36_start_date')))
                 sup_tr = st.date_input("技能実習責任者講習日（空欄可、2.5年経過でアラート）",
@@ -817,7 +816,6 @@ def show_company_details():
                 wp = st.selectbox("実習場所確認", wp_opts, index=wp_opts.index(wp_val) if wp_val in wp_opts else 0)
 
             st.markdown("---")
-            # 🌟 修正ポイント：「技能実習指導員」「生活指導員」のラベルと入力欄を整理追加
             st.markdown("##### 👥 責任者・指導員情報")
             c5, c6 = st.columns(2)
             with c5:
@@ -825,7 +823,26 @@ def show_company_details():
                 tech_inst = st.text_input("技能実習指導員", value=format_date(c_data.get('technical_instructor', '')))
             with c6:
                 life_inst = st.text_input("生活指導員", value=format_date(c_data.get('life_instructor', '')))
-                v_hours = st.text_area("変形労働 備考", value=format_date(c_data.get('variable_working_hours_remarks', '')))
+
+            st.markdown("---")
+            st.markdown("##### 📄 雇用条件・その他")
+            c7, c8 = st.columns(2)
+            with c7:
+                working_hours = st.text_input("労働時間（何時から何時まで）", value=format_date(c_data.get('working_hours', '')))
+                daily_working_hours = st.text_input("1日労働時間", value=format_date(c_data.get('daily_working_hours', '')))
+                annual_working_hours = st.text_input("年間労働時間",
+                                                     value=format_date(c_data.get('annual_working_hours', '')))
+                holidays = st.text_input("休日", value=format_date(c_data.get('holidays', '')))
+                salary_cutoff_date = st.text_input("給料締切日", value=format_date(c_data.get('salary_cutoff_date', '')))
+                salary_payment_method = st.text_input("支払方法",
+                                                      value=format_date(c_data.get('salary_payment_method', '')))
+            with c8:
+                break_time_minutes = st.text_input("休憩時間（分）", value=format_date(c_data.get('break_time_minutes', '')))
+                annual_working_days = st.text_input("年間労働日数", value=format_date(c_data.get('annual_working_days', '')))
+                annual_holidays = st.text_input("年間休日数", value=format_date(c_data.get('annual_holidays', '')))
+                salary_payment_date = st.text_input("支払日", value=format_date(c_data.get('salary_payment_date', '')))
+
+            remarks = st.text_area("📝 備考欄（いろいろなことを書く用）", value=format_date(c_data.get('remarks', '')))
 
             st.markdown("---")
             confirm_save_comp = st.checkbox("上記の内容で会社情報を保存（上書き）することを確認しました", key=f"chk_save_comp_{c_id}")
@@ -836,20 +853,30 @@ def show_company_details():
                         "representative_name": str(rep_name),
                         "representative_name_kana": str(rep_kana),
                         "address": str(c_address),
+                        "company_tel": str(company_tel),
                         "specific_industry_field": str(industry),
                         "workplace_address": str(work_addr),
                         "workplace_tel": str(work_tel),
-                        # 空欄(None)の場合は「該当なし」として保存
                         "agreement_36_start_date": a36_start.strftime('%Y-%m-%d') if a36_start else "該当なし",
                         "supervisor_training_date": sup_tr.strftime('%Y-%m-%d') if sup_tr else "該当なし",
                         "workplace_confirmed": wp,
                         "instructor_manager": str(inst_mgr),
                         "technical_instructor": str(tech_inst),
                         "life_instructor": str(life_inst),
-                        "variable_working_hours_remarks": str(v_hours)
+                        "working_hours": str(working_hours),
+                        "break_time_minutes": str(break_time_minutes),
+                        "daily_working_hours": str(daily_working_hours),
+                        "annual_working_hours": str(annual_working_hours),
+                        "holidays": str(holidays),
+                        "annual_working_days": str(annual_working_days),
+                        "annual_holidays": str(annual_holidays),
+                        "salary_cutoff_date": str(salary_cutoff_date),
+                        "salary_payment_date": str(salary_payment_date),
+                        "salary_payment_method": str(salary_payment_method),
+                        "remarks": str(remarks)
                     })
-                    clear_caches();
-                    st.success("保存しました！");
+                    clear_caches()
+                    st.success("保存しました！")
                     st.rerun()
                 else:
                     st.error("※ 保存する場合は、「確認しました」のチェックを入れてからボタンを押してください。")
@@ -866,8 +893,8 @@ def show_company_details():
                 db.collection('company_logs').add({
                     "company_id": c_id, "log_date": l_date.strftime('%Y-%m-%d'), "log_category": str(l_cat),
                     "log_content": str(l_text), "created_at": firestore.SERVER_TIMESTAMP})
-                clear_caches();
-                st.success("追加しました！");
+                clear_caches()
+                st.success("追加しました！")
                 st.rerun()
 
         c_logs = fetch_where("company_logs", "company_id", "==", c_id)
@@ -884,13 +911,13 @@ def show_company_details():
                         if eb1.form_submit_button("💾 修正内容を保存", use_container_width=True):
                             db.collection('company_logs').document(l['id']).update(
                                 {"log_content": str(e_txt), "log_category": str(e_cat)})
-                            clear_caches();
-                            st.success("保存完了");
+                            clear_caches()
+                            st.success("保存完了")
                             st.rerun()
                         if eb2.form_submit_button("🗑️ 削除する", use_container_width=True):
                             db.collection('company_logs').document(l['id']).delete()
-                            clear_caches();
-                            st.warning("削除完了");
+                            clear_caches()
+                            st.warning("削除完了")
                             st.rerun()
 
     with tab_file:
