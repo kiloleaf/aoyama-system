@@ -555,9 +555,18 @@ def show_worker_list():
         col_p.markdown(
             f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
             unsafe_allow_html=True)
+
+        # 🌟 修正ポイント：特定技能2号の場合にバッジを表示
+        visa_val = format_date(w.get('visa_status'))
+        if visa_val == "特定技能2号":
+            visa_disp = f"{visa_val} <span style='background-color:#FFD700; color:#333; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; margin-left:5px; border: 1px solid #daaa00;'>🌟 特2号</span>"
+        else:
+            visa_disp = visa_val
+
         col_v.markdown(
-            f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{format_date(w.get('visa_status'))}<br><br><b>在留カード期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期間(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
+            f"##### ✈️ 在留・資格情報\n<div style='line-height:1.6; font-size:14px;'><b>在留資格</b><br>{visa_disp}<br><br><b>在留カード期限</b><br>{format_date(w.get('visa_expiry'))}<br><br><b>在留カード番号</b><br>{format_date(w.get('residence_card_number'))}<br><br><b>在留カード期間(月)</b><br>{format_date(w.get('residence_card_duration_months'))}<br><br><b>特定1号期間</b><br>{format_date(w.get('ssw1_start_date'))} 〜 {format_date(w.get('ssw1_end_date'))}<br><br><b>特定2号開始日</b><br>{format_date(w.get('ssw2_start_date'))}</div>",
             unsafe_allow_html=True)
+
         w_h = format_currency(w.get('hourly_wage')) or "ー"
         w_d = format_currency(w.get('daily_wage')) or "ー"
         w_m = format_currency(w.get('monthly_wage')) or "ー"
@@ -753,7 +762,6 @@ def show_worker_list():
                 else:
                     st.error("※ 削除する場合は、確認のチェックを入れてください。")
 
-
 # ==========================================
 # 🏢 画面：会社情報
 # ==========================================
@@ -825,6 +833,24 @@ def show_company_details():
                 life_inst = st.text_input("生活指導員", value=format_date(c_data.get('life_instructor', '')))
 
             st.markdown("---")
+
+            # 🌟 修正ポイント：人材名簿から宿舎所在地を自動抽出（閲覧のみ）
+            st.markdown("##### 🏠 宿舎所在地（人材名簿より抽出・閲覧のみ）")
+            df_w_for_dorm = fetch_all_cached("foreign_workers")
+            if not df_w_for_dorm.empty and 'residence_address' in df_w_for_dorm.columns:
+                comp_workers = df_w_for_dorm[df_w_for_dorm['company_id'] == c_id]
+                valid_addrs = [a for a in comp_workers['residence_address'].dropna().astype(str).unique() if
+                               a.strip() not in ["", "nan", "None", "ー", "該当なし"]]
+                if valid_addrs:
+                    for addr in valid_addrs:
+                        st.markdown(f"- {addr}")
+                else:
+                    st.caption("※ 現在登録されている宿舎住所はありません。")
+            else:
+                st.caption("※ 現在登録されている宿舎住所はありません。")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
             st.markdown("##### 📄 雇用条件・その他")
             c7, c8 = st.columns(2)
             with c7:
