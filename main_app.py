@@ -556,7 +556,6 @@ def show_worker_list():
             f"##### 👤 本人情報\n<div style='line-height:1.6; font-size:14px;'><b>氏名カナ</b><br>{format_date(w.get('name_kana'))}<br><br><b>ニックネーム</b><br>{format_date(w.get('nickname'))}<br><br><b>生年月日</b><br>{format_date(w.get('birthdate'))}<br><br><b>性別</b><br>{format_date(w.get('gender'))}<br><br><b>国籍</b><br>{format_date(w.get('nationality'))}<br><br><b>出身地</b><br>{format_date(w.get('birthplace'))}<br><br><b>本国居住地</b><br>{format_date(w.get('home_address'))}</div>",
             unsafe_allow_html=True)
 
-        # 🌟 修正ポイント：特定技能2号の場合にバッジを表示
         visa_val = format_date(w.get('visa_status'))
         if visa_val == "特定技能2号":
             visa_disp = f"{visa_val} <span style='background-color:#FFD700; color:#333; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; margin-left:5px; border: 1px solid #daaa00;'>🌟 特2号</span>"
@@ -714,16 +713,23 @@ def show_worker_list():
                                             value=format_date(w.get('ssw1_end_date', '')))
                 st.markdown("---")
                 e7, e8 = st.columns(2)
+
+                # 🌟 修正ポイント：入力欄にプレースホルダーを追加（保存時にformat_currencyを通して整形保存されます）
                 with e7:
-                    nwage_h = st.text_input("時給 (円)", value=format_currency(w.get('hourly_wage', '')))
-                    nwage_m = st.text_input("月給 (円)", value=format_currency(w.get('monthly_wage', '')))
+                    nwage_h = st.text_input("時給 (円) ※保存時に自動でカンマが付きます", value=format_currency(w.get('hourly_wage', '')),
+                                            placeholder="例: 1000")
+                    nwage_m = st.text_input("月給 (円) ※保存時に自動でカンマが付きます", value=format_currency(w.get('monthly_wage', '')),
+                                            placeholder="例: 200000")
                     nr = st.text_input("宿舎・寮住所", value=format_date(w.get('residence_address', '')))
                     nrem = st.text_input("備考", value=format_date(w.get('remarks', '')))
                 with e8:
-                    nwage_d = st.text_input("日給 (円)", value=format_currency(w.get('daily_wage', '')))
-                    nhousing = st.text_input("居住費", value=format_currency(w.get('housing_cost', '')))
+                    nwage_d = st.text_input("日給 (円) ※保存時に自動でカンマが付きます", value=format_currency(w.get('daily_wage', '')),
+                                            placeholder="例: 8000")
+                    nhousing = st.text_input("居住費 ※保存時に自動でカンマが付きます", value=format_currency(w.get('housing_cost', '')),
+                                             placeholder="例: 30000")
                     nagency = st.text_input("斡旋機関", value=format_date(w.get('dispatch_agency', '')))
                 st.markdown("---")
+
                 confirm_save = st.checkbox("上記の内容で保存（上書き）することを確認しました", key=f"chk_save_{selected_id}")
                 if st.form_submit_button("💾 変更をすべて保存する"):
                     if confirm_save:
@@ -737,9 +743,13 @@ def show_worker_list():
                             "passport_expiration_date": np_exp.strftime('%Y-%m-%d') if np_exp else "該当なし",
                             "ssw1_start_date": str(nssw1_s), "ssw1_end_date": str(nssw1_e),
                             "ssw2_start_date": str(nssw2_s),
-                            "entry_date": str(nentry), "hourly_wage": format_currency(nwage_h),
-                            "daily_wage": format_currency(nwage_d), "monthly_wage": format_currency(nwage_m),
-                            "housing_cost": format_currency(nhousing), "residence_address": str(nr),
+                            "entry_date": str(nentry),
+                            # 🌟 修正ポイント：入力された数値を format_currency で整形してから保存
+                            "hourly_wage": format_currency(nwage_h),
+                            "daily_wage": format_currency(nwage_d),
+                            "monthly_wage": format_currency(nwage_m),
+                            "housing_cost": format_currency(nhousing),
+                            "residence_address": str(nr),
                             "dispatch_agency": str(nagency), "remarks": str(nrem)
                         })
                         clear_caches();
@@ -834,22 +844,7 @@ def show_company_details():
 
             st.markdown("---")
 
-            # 🌟 修正ポイント：人材名簿から宿舎所在地を自動抽出（閲覧のみ）
-            st.markdown("##### 🏠 宿舎所在地（人材名簿より抽出・閲覧のみ）")
-            df_w_for_dorm = fetch_all_cached("foreign_workers")
-            if not df_w_for_dorm.empty and 'residence_address' in df_w_for_dorm.columns:
-                comp_workers = df_w_for_dorm[df_w_for_dorm['company_id'] == c_id]
-                valid_addrs = [a for a in comp_workers['residence_address'].dropna().astype(str).unique() if
-                               a.strip() not in ["", "nan", "None", "ー", "該当なし"]]
-                if valid_addrs:
-                    for addr in valid_addrs:
-                        st.markdown(f"- {addr}")
-                else:
-                    st.caption("※ 現在登録されている宿舎住所はありません。")
-            else:
-                st.caption("※ 現在登録されている宿舎住所はありません。")
-
-            st.markdown("<br>", unsafe_allow_html=True)
+            # （※ 宿舎所在地 抽出セクションを削除しました ※）
 
             st.markdown("##### 📄 雇用条件・その他")
             c7, c8 = st.columns(2)
